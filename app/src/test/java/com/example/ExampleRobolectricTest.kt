@@ -6,10 +6,13 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.CodeProjectEntity
 import com.example.data.CodeTab
 import com.example.engine.CodeFormatter
+import com.example.engine.LogLevel
 import com.example.engine.NativeLiveEngine
+import com.example.engine.PreviewScaleMode
 import com.example.engine.SyntaxHighlighter
 import com.example.engine.TypingSoundEngine
 import com.example.engine.TypingSoundProfile
+import com.example.engine.WebSandboxEngine
 import com.example.ui.theme.DarkEditorPalette
 import com.example.ui.theme.createAppTypography
 import com.example.viewmodel.CreatorAccentPalette
@@ -17,6 +20,7 @@ import com.example.viewmodel.EndCtaStyle
 import com.example.viewmodel.OverlaySizeScale
 import com.example.viewmodel.ViralHookStyle
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -169,5 +173,105 @@ class ExampleRobolectricTest {
         val largeTypography = createAppTypography(1.20f)
         assertTrue(compactTypography.bodyLarge.fontSize.value < largeTypography.bodyLarge.fontSize.value)
         assertTrue(compactTypography.titleMedium.fontSize.value < largeTypography.titleMedium.fontSize.value)
+    }
+
+    @Test
+    fun webSandboxEngine_handlesFullHtmlDocument_cdnAutoDetect_scssComments_andSyntaxCompletion() {
+        val singleFileSnippet = """
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <style>
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+                    // SCSS-style single line comment that online editors allow
+                    body {
+                        height: 100vh;
+                        overflow: hidden;
+                        background-image: url("https://example.com/bg.png");
+                    }
+                    .btn { color: #38bdf8; }
+                </style>
+            </head>
+            <body class="dark-body">
+                <div class="container">
+                    <i class="fa-solid fa-bolt"></i>
+                    <canvas id="scene"></canvas>
+                </div>
+                <script>
+                    const items = [1, 2, 3].map(x => x * 2);
+                    document.querySelector('.container').classList.add('ready');
+                    console.log("Items:", items);
+                </script>
+            </body>
+            </html>
+        """.trimIndent()
+
+        assertTrue(WebSandboxEngine.hasEmbeddedStyleOrScript(singleFileSnippet))
+
+        val split = WebSandboxEngine.splitEmbeddedHtml(singleFileSnippet)
+        assertTrue(split.didSplit)
+        assertTrue(split.extractedCss.contains(".btn { color: #38bdf8; }"))
+        assertTrue(split.extractedJs.contains("const items = [1, 2, 3].map(x => x * 2);"))
+        assertFalse(split.cleanedHtml.contains("<style>"))
+
+        val normalizedCss = WebSandboxEngine.normalizeUserCss(split.extractedCss)
+        assertTrue(normalizedCss.trimStart().startsWith("@import"))
+        assertTrue(normalizedCss.contains("/* SCSS-style single line comment"))
+        assertTrue(normalizedCss.contains("https://example.com/bg.png"))
+
+        val fullDoc = WebSandboxEngine.buildFullHtmlDocument(
+            rawHtmlCode = singleFileSnippet,
+            rawCssCode = "",
+            rawJsCode = "",
+            runJs = true,
+            scaleMode = PreviewScaleMode.AUTO_FIT
+        )
+        // Auto-detected FontAwesome CDN from fa-solid fa-bolt
+        assertTrue(fullDoc.contains("font-awesome"))
+        assertTrue(fullDoc.contains("window.__codepadApplyLayoutGuard"))
+
+        // Syntax completeness checks for mid-typing vs completed ES6+ code
+        assertFalse(WebSandboxEngine.isJsSyntacticallyComplete("const x = { a: 1"))
+        assertFalse(WebSandboxEngine.isJsSyntacticallyComplete("function demo(a, b) { console.log('hi'"))
+        assertTrue(WebSandboxEngine.isJsSyntacticallyComplete("const fn = (a, b) => ({ sum: a + b });\nconst re = /^https?:\\/\\/[^\\s]+$/;"))
+    }
+
+    @Test
+    fun nativeLiveEngine_executesModernEs6CodeWithoutFalseReferenceErrors() {
+        val html = """
+            <div class="wrapper">
+                <h2 id="heading">Hello</h2>
+                <canvas id="gameCanvas" width="300" height="150"></canvas>
+                <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>
+            </div>
+        """.trimIndent()
+
+        val css = """
+            @keyframes pulse {
+                0% { opacity: 0.5; }
+                100% { opacity: 1; }
+            }
+            .wrapper {
+                padding: 16px;
+                background: linear-gradient(135deg, #1e293b, #0f172a);
+            }
+        """.trimIndent()
+
+        val js = """
+            const canvas = document.getElementById('gameCanvas');
+            const ctx = canvas.getContext('2d');
+            const items = [10, 20, 30].filter(n => n > 15);
+            document.querySelector('#heading').textContent = "Canvas Ready";
+            window.addEventListener('resize', () => {
+                console.log("Resized");
+            });
+            console.log("Loaded items:", items.length);
+        """.trimIndent()
+
+        val snapshot = NativeLiveEngine.evaluateProject(html = html, css = css, js = js)
+        assertTrue(snapshot.logs.none { it.level == LogLevel.ERROR })
+        val wrapper = snapshot.rootNodes.first()
+        val heading = wrapper.children.first { it.id == "heading" }
+        assertEquals("Canvas Ready", heading.text)
     }
 }

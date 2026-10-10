@@ -31,6 +31,8 @@ object ProjectExportEngine {
         cssCode: String,
         jsCode: String
     ): String {
+        val (cleanHtml, cleanCss, cleanJs) = WebSandboxEngine.resolveEffectiveCode(htmlCode, cssCode, jsCode)
+        val normalizedCss = WebSandboxEngine.normalizeUserCss(cleanCss)
         return """
             <!DOCTYPE html>
             <html lang="en">
@@ -39,13 +41,13 @@ object ProjectExportEngine {
               <meta name="viewport" content="width=device-width, initial-scale=1.0" />
               <title>$projectName — Bundled by CodePad Studio</title>
               <style>
-            ${cssCode.prependIndent("    ")}
+            ${normalizedCss.prependIndent("    ")}
               </style>
             </head>
             <body>
-            ${htmlCode.prependIndent("  ")}
+            ${cleanHtml.prependIndent("  ")}
               <script>
-            ${jsCode.prependIndent("    ")}
+            ${cleanJs.prependIndent("    ")}
               </script>
             </body>
             </html>

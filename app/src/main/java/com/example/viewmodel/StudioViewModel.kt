@@ -19,9 +19,11 @@ import com.example.engine.JsFunctionDef
 import com.example.engine.LogLevel
 import com.example.engine.NativeDomNode
 import com.example.engine.NativeLiveEngine
+import com.example.engine.PreviewScaleMode
 import com.example.engine.ProjectExportEngine
 import com.example.engine.TypingSoundEngine
 import com.example.engine.TypingSoundProfile
+import com.example.engine.WebSandboxEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -31,6 +33,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
@@ -270,6 +273,8 @@ data class StudioUiState(
     val bodyStyle: ComputedNodeStyle = ComputedNodeStyle(),
     val consoleLogs: List<ConsoleLogEntry> = emptyList(),
     val consoleFilter: LogLevel? = null,
+    val previewScaleMode: PreviewScaleMode = PreviewScaleMode.AUTO_FIT,
+    val previewReloadNonce: Long = 0L,
     // Auto Write Studio & Creator Customization
     val autoWriteTab: CodeTab = CodeTab.INDEX_HTML,
     val isAutoWritePlaying: Boolean = false,
@@ -323,6 +328,9 @@ data class StudioUiState(
     val previewSectionHeightDp: Float = 195f,
     val autoWriteDomNodes: List<NativeDomNode> = emptyList(),
     val autoWriteBodyStyle: ComputedNodeStyle = ComputedNodeStyle(),
+    val autoWriteEffectiveHtml: String = "",
+    val autoWriteEffectiveCss: String = "",
+    val autoWriteEffectiveJs: String = "",
     val autoWriteCurrentLine: Int = 1,
     val autoWriteCurrentColumn: Int = 1,
     val sequenceMetrics: TypingSequenceMetrics = TypingSequenceMetrics(
@@ -390,6 +398,9 @@ data class StudioUiState(
 
     val errorCount: Int
         get() = consoleLogs.count { it.level == LogLevel.ERROR }
+
+    val canSplitEmbeddedHtml: Boolean
+        get() = WebSandboxEngine.hasEmbeddedStyleOrScript(htmlCode)
 }
 
 fun computeLineAndColumn(code: String, charCount: Int): Pair<Int, Int> {
@@ -415,8 +426,10 @@ class StudioViewModel(
     val uiState: StateFlow<StudioUiState> = _uiState.asStateFlow()
 
     private var autoSaveJob: Job? = null
+    private var liveJsDebounceJob: Job? = null
     private var typewriterJob: Job? = null
     private var countdownJob: Job? = null
+    private var isWebViewEngineAttached: Boolean = false
     private var lastAutoPreviewHtml: String = "__UNSET__"
     private var lastAutoPreviewCss: String = "__UNSET__"
     private var lastAutoPreviewJs: String = "__UNSET__"
@@ -571,33 +584,63 @@ class StudioViewModel(
     }
 
     fun onCodeChanged(newCode: String, cursorOffset: Int) {
-        val (line, col) = calculateLineAndColumn(newCode, cursorOffset)
+        val sanitized = WebSandboxEngine.sanitizeCode(newCode)
+        val prevCode = _uiState.value.activeCode
+        val activeTab = _uiState.value.activeTab
+        val isBulkPaste = abs(sanitized.length - prevCode.length) > 8
+
+        val (line, col) = calculateLineAndColumn(sanitized, cursorOffset)
         _uiState.update { state ->
             when (state.activeTab) {
                 CodeTab.INDEX_HTML -> state.copy(
-                    htmlCode = newCode,
+                    htmlCode = sanitized,
                     isSaved = false,
                     currentLine = line,
                     currentColumn = col
                 )
                 CodeTab.STYLE_CSS -> state.copy(
-                    cssCode = newCode,
+                    cssCode = sanitized,
                     isSaved = false,
                     currentLine = line,
                     currentColumn = col
                 )
                 CodeTab.SCRIPT_JS -> state.copy(
-                    jsCode = newCode,
+                    jsCode = sanitized,
                     isSaved = false,
                     currentLine = line,
                     currentColumn = col
                 )
             }
         }
-        // Instant Live Preview update on every character typed in IDE (including top-level JS)
         syncAutoSpeedMetricsIfNeeded()
-        rebuildNativePreview(runTopLevelJs = true, logSystemBoot = false)
         updateProgressiveAutoWritePreview()
+
+        when {
+            activeTab == CodeTab.STYLE_CSS -> {
+                // CSS edits apply at 60fps without needing to re-run top-level JS or clear console
+                rebuildNativePreview(runTopLevelJs = false, logSystemBoot = false, clearPreviousRuntimeLogs = false)
+            }
+            isBulkPaste -> {
+                // User pasted a code snippet: run immediately and clear stale logs from old code
+                liveJsDebounceJob?.cancel()
+                _uiState.update { it.copy(previewReloadNonce = it.previewReloadNonce + 1L) }
+                rebuildNativePreview(runTopLevelJs = true, logSystemBoot = false, clearPreviousRuntimeLogs = true)
+            }
+            else -> {
+                // Single-character typing: update DOM structure immediately, debounce JS execution by 300ms
+                // so incomplete lines while typing never spam false SyntaxErrors in the Console.
+                rebuildNativePreview(runTopLevelJs = false, logSystemBoot = false, clearPreviousRuntimeLogs = false)
+                liveJsDebounceJob?.cancel()
+                liveJsDebounceJob = viewModelScope.launch {
+                    delay(300L)
+                    val latestJs = _uiState.value.jsCode
+                    if (WebSandboxEngine.isJsSyntacticallyComplete(latestJs)) {
+                        _uiState.update { it.copy(previewReloadNonce = it.previewReloadNonce + 1L) }
+                        rebuildNativePreview(runTopLevelJs = true, logSystemBoot = false, clearPreviousRuntimeLogs = true)
+                    }
+                }
+            }
+        }
         triggerDebouncedAutoSave()
     }
 
@@ -799,6 +842,7 @@ class StudioViewModel(
     fun loadPreset(preset: ProjectPreset) {
         typewriterJob?.cancel()
         countdownJob?.cancel()
+        liveJsDebounceJob?.cancel()
         clearRuntimeDomState()
         _uiState.update {
             it.copy(
@@ -814,7 +858,9 @@ class StudioViewModel(
                 autoWriteCurrentLine = 1,
                 autoWriteCurrentColumn = 1,
                 isEndCtaActive = false,
-                isViralTemplatesSheetOpen = false
+                isViralTemplatesSheetOpen = false,
+                consoleLogs = emptyList(),
+                previewReloadNonce = it.previewReloadNonce + 1L
             )
         }
         appendConsoleLog(
@@ -823,7 +869,7 @@ class StudioViewModel(
             "Templates"
         )
         syncAutoSpeedMetricsIfNeeded()
-        rebuildNativePreview(runTopLevelJs = true, logSystemBoot = false)
+        rebuildNativePreview(runTopLevelJs = true, logSystemBoot = false, clearPreviousRuntimeLogs = false)
         updateProgressiveAutoWritePreview(force = true)
         triggerDebouncedAutoSave()
         if (_uiState.value.activeModule == StudioModule.AUTO_WRITE_STUDIO) {
@@ -831,7 +877,175 @@ class StudioViewModel(
         }
     }
 
-    fun rebuildNativePreview(runTopLevelJs: Boolean = true, logSystemBoot: Boolean = false) {
+    fun splitEmbeddedHtmlIntoTabs() {
+        val state = _uiState.value
+        val splitResult = WebSandboxEngine.splitEmbeddedHtml(
+            htmlCode = state.htmlCode,
+            existingCss = state.cssCode,
+            existingJs = state.jsCode
+        )
+        if (!splitResult.didSplit) return
+
+        liveJsDebounceJob?.cancel()
+        clearRuntimeDomState()
+        _uiState.update {
+            it.copy(
+                htmlCode = splitResult.cleanedHtml,
+                cssCode = splitResult.extractedCss,
+                jsCode = splitResult.extractedJs,
+                currentLine = 1,
+                currentColumn = 1,
+                isSaved = false,
+                consoleLogs = emptyList(),
+                previewReloadNonce = it.previewReloadNonce + 1L
+            )
+        }
+        appendConsoleLog(
+            LogLevel.SYSTEM,
+            "Extracted inline <style> & <script> into style.css and script.js",
+            "Splitter"
+        )
+        syncAutoSpeedMetricsIfNeeded()
+        rebuildNativePreview(runTopLevelJs = true, logSystemBoot = false, clearPreviousRuntimeLogs = false)
+        updateProgressiveAutoWritePreview(force = true)
+        triggerDebouncedAutoSave()
+    }
+
+    fun clearActiveTabCode() {
+        liveJsDebounceJob?.cancel()
+        val tab = _uiState.value.activeTab
+        _uiState.update { state ->
+            when (tab) {
+                CodeTab.INDEX_HTML -> state.copy(
+                    htmlCode = "",
+                    currentLine = 1,
+                    currentColumn = 1,
+                    isSaved = false,
+                    previewReloadNonce = state.previewReloadNonce + 1L
+                )
+                CodeTab.STYLE_CSS -> state.copy(
+                    cssCode = "",
+                    currentLine = 1,
+                    currentColumn = 1,
+                    isSaved = false,
+                    previewReloadNonce = state.previewReloadNonce + 1L
+                )
+                CodeTab.SCRIPT_JS -> state.copy(
+                    jsCode = "",
+                    currentLine = 1,
+                    currentColumn = 1,
+                    isSaved = false,
+                    previewReloadNonce = state.previewReloadNonce + 1L
+                )
+            }
+        }
+        syncAutoSpeedMetricsIfNeeded()
+        rebuildNativePreview(runTopLevelJs = true, logSystemBoot = false, clearPreviousRuntimeLogs = true)
+        updateProgressiveAutoWritePreview(force = true)
+        triggerDebouncedAutoSave()
+    }
+
+    fun clearAllTabsForNewSnippet() {
+        typewriterJob?.cancel()
+        countdownJob?.cancel()
+        liveJsDebounceJob?.cancel()
+        clearRuntimeDomState()
+        _uiState.update {
+            it.copy(
+                htmlCode = "",
+                cssCode = "",
+                jsCode = "",
+                currentLine = 1,
+                currentColumn = 1,
+                typedCharCount = 0,
+                autoWriteCurrentLine = 1,
+                autoWriteCurrentColumn = 1,
+                isAutoWritePlaying = false,
+                isSaved = false,
+                consoleLogs = emptyList(),
+                previewReloadNonce = it.previewReloadNonce + 1L
+            )
+        }
+        appendConsoleLog(
+            LogLevel.SYSTEM,
+            "Cleared HTML, CSS & JS tabs for a new code snippet.",
+            "Workspace"
+        )
+        syncAutoSpeedMetricsIfNeeded()
+        rebuildNativePreview(runTopLevelJs = false, logSystemBoot = false, clearPreviousRuntimeLogs = false)
+        updateProgressiveAutoWritePreview(force = true)
+        triggerDebouncedAutoSave()
+    }
+
+    fun cyclePreviewScaleMode() {
+        _uiState.update {
+            it.copy(previewScaleMode = it.previewScaleMode.next())
+        }
+    }
+
+    fun togglePreviewExpandedHeight() {
+        _uiState.update { current ->
+            val nextHeight = if (current.previewSectionHeightDp < 300f) 360f else 195f
+            current.copy(previewSectionHeightDp = nextHeight)
+        }
+        triggerDebouncedAutoSave()
+    }
+
+    fun forceReloadPreview() {
+        liveJsDebounceJob?.cancel()
+        _uiState.update {
+            it.copy(
+                consoleLogs = emptyList(),
+                previewReloadNonce = it.previewReloadNonce + 1L
+            )
+        }
+        rebuildNativePreview(runTopLevelJs = true, logSystemBoot = false, clearPreviousRuntimeLogs = true)
+        updateProgressiveAutoWritePreview(force = true)
+    }
+
+    fun setWebViewEngineAttached(attached: Boolean) {
+        isWebViewEngineAttached = attached
+    }
+
+    fun onWebConsoleMessage(
+        level: LogLevel,
+        message: String,
+        sourceLocation: String = "script.js",
+        stackTrace: String? = null
+    ) {
+        val trimmedMsg = message.trim()
+        if (trimmedMsg.isEmpty()) return
+        _uiState.update { current ->
+            val lastEntry = current.consoleLogs.lastOrNull()
+            // Avoid rapid duplicate identical console messages within 40ms
+            if (lastEntry != null &&
+                lastEntry.level == level &&
+                lastEntry.message == trimmedMsg &&
+                (System.nanoTime() - lastEntry.id) < 40_000_000L
+            ) {
+                current
+            } else {
+                current.copy(
+                    consoleLogs = (current.consoleLogs + ConsoleLogEntry(
+                        level = level,
+                        message = trimmedMsg,
+                        sourceLocation = sourceLocation.ifBlank { "script.js" },
+                        stackTrace = stackTrace?.takeIf { it.isNotBlank() }
+                    )).takeLast(120)
+                )
+            }
+        }
+    }
+
+    fun onWebConsoleClear() {
+        _uiState.update { it.copy(consoleLogs = emptyList()) }
+    }
+
+    fun rebuildNativePreview(
+        runTopLevelJs: Boolean = true,
+        logSystemBoot: Boolean = false,
+        clearPreviousRuntimeLogs: Boolean = runTopLevelJs
+    ) {
         val state = _uiState.value
         if (runTopLevelJs) {
             clearRuntimeDomState()
@@ -850,18 +1064,24 @@ class StudioViewModel(
         runtimeVariables.putAll(snapshot.variables)
 
         _uiState.update { current ->
+            val baseLogs = if (clearPreviousRuntimeLogs) {
+                current.consoleLogs.filter { it.level == LogLevel.SYSTEM }.takeLast(4)
+            } else {
+                current.consoleLogs
+            }
             val updatedLogs = buildList {
-                addAll(current.consoleLogs)
-                if (logSystemBoot && current.consoleLogs.isEmpty()) {
+                addAll(baseLogs)
+                if (logSystemBoot && baseLogs.isEmpty()) {
                     add(
                         ConsoleLogEntry(
                             level = LogLevel.SYSTEM,
-                            message = "Native preview & console ready.",
+                            message = "Live Web & Native preview ready.",
                             sourceLocation = "system"
                         )
                     )
                 }
-                if (runTopLevelJs) {
+                // When the Chromium WebView engine is attached, V8 emits authoritative console logs directly
+                if (runTopLevelJs && !isWebViewEngineAttached) {
                     addAll(snapshot.logs)
                 }
             }.takeLast(120)
@@ -906,9 +1126,14 @@ class StudioViewModel(
                 if (state.typedCharCount >= state.jsCode.length) {
                     visible
                 } else {
-                    // Run all completed JS lines/statements immediately as they are typed
+                    // Only run a progressive JS prefix when all braces/parens/strings are balanced
                     val lastNewline = visible.lastIndexOf('\n')
-                    if (lastNewline >= 0) visible.substring(0, lastNewline) else ""
+                    val candidate = if (lastNewline >= 0) visible.substring(0, lastNewline) else ""
+                    if (candidate.isNotBlank() && WebSandboxEngine.isJsSyntacticallyComplete(candidate)) {
+                        candidate
+                    } else {
+                        lastAutoPreviewJs.takeIf { it != "__UNSET__" } ?: ""
+                    }
                 }
             }
         }
@@ -946,7 +1171,10 @@ class StudioViewModel(
         _uiState.update {
             it.copy(
                 autoWriteDomNodes = progressiveSnapshot.rootNodes,
-                autoWriteBodyStyle = progressiveSnapshot.bodyStyle
+                autoWriteBodyStyle = progressiveSnapshot.bodyStyle,
+                autoWriteEffectiveHtml = effectiveHtml,
+                autoWriteEffectiveCss = effectiveCss,
+                autoWriteEffectiveJs = effectiveJs
             )
         }
     }
@@ -1683,10 +1911,18 @@ class StudioViewModel(
                 val fullLength = fullCode.length
 
                 if (state.typedCharCount >= fullLength) {
-                    val nextChainTab = when (state.autoWriteTab) {
-                        CodeTab.INDEX_HTML -> if (state.isAutoChainTabs) CodeTab.STYLE_CSS else null
-                        CodeTab.STYLE_CSS -> if (state.isAutoChainTabs) CodeTab.SCRIPT_JS else null
-                        CodeTab.SCRIPT_JS -> null
+                    val nextChainTab = if (!state.isAutoChainTabs) {
+                        null
+                    } else {
+                        when (state.autoWriteTab) {
+                            CodeTab.INDEX_HTML -> when {
+                                state.cssCode.isNotBlank() -> CodeTab.STYLE_CSS
+                                state.jsCode.isNotBlank() -> CodeTab.SCRIPT_JS
+                                else -> null
+                            }
+                            CodeTab.STYLE_CSS -> if (state.jsCode.isNotBlank()) CodeTab.SCRIPT_JS else null
+                            CodeTab.SCRIPT_JS -> null
+                        }
                     }
 
                     if (nextChainTab != null) {
@@ -1830,8 +2066,8 @@ class StudioViewModel(
     private fun countRemainingTransitions(state: StudioUiState): Int {
         if (!state.isAutoChainTabs) return 0
         return when (state.autoWriteTab) {
-            CodeTab.INDEX_HTML -> 2
-            CodeTab.STYLE_CSS -> 1
+            CodeTab.INDEX_HTML -> (if (state.cssCode.isNotBlank()) 1 else 0) + (if (state.jsCode.isNotBlank()) 1 else 0)
+            CodeTab.STYLE_CSS -> if (state.jsCode.isNotBlank()) 1 else 0
             CodeTab.SCRIPT_JS -> 0
         }
     }
@@ -1882,6 +2118,7 @@ class StudioViewModel(
 
     override fun onCleared() {
         autoSaveJob?.cancel()
+        liveJsDebounceJob?.cancel()
         typewriterJob?.cancel()
         countdownJob?.cancel()
         TypingSoundEngine.release()

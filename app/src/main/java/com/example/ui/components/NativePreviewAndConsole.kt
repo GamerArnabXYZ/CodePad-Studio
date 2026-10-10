@@ -1,6 +1,23 @@
 package com.example.ui.components
 
+import android.annotation.SuppressLint
+import android.content.Context
+import android.graphics.Color as AndroidColor
+import android.os.Handler
+import android.os.Looper
+import android.view.MotionEvent
+import android.view.ViewGroup
+import android.webkit.ConsoleMessage
+import android.webkit.JavascriptInterface
+import android.webkit.JsPromptResult
+import android.webkit.JsResult
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,6 +33,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -35,6 +53,8 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.UnfoldLess
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.Button
@@ -48,24 +68,31 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.example.engine.ComputedNodeStyle
 import com.example.engine.ConsoleLogEntry
 import com.example.engine.LogLevel
 import com.example.engine.NativeDomNode
+import com.example.engine.PreviewScaleMode
+import com.example.engine.WebSandboxEngine
 import com.example.ui.theme.ConsoleErrorRed
 import com.example.ui.theme.ConsoleInfoBlue
 import com.example.ui.theme.ConsoleWarnAmber
@@ -75,8 +102,63 @@ import com.example.ui.theme.uiSp
 import kotlin.math.roundToInt
 
 /**
- * Clean Material 3 Native DOM Live Preview Panel (Zero WebView)
- * Supports interactive 1:1 vertical finger dragging on the top handle / header bar to resize bigger or smaller.
+ * Interactive WebView subclass that prevents parent scroll containers from stealing
+ * touch events on <canvas>, sliders, buttons, and scrollable web containers.
+ */
+private class SandboxWebView(context: Context) : WebView(context) {
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(event: MotionEvent?): Boolean {
+        when (event?.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                parent?.requestDisallowInterceptTouchEvent(true)
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                parent?.requestDisallowInterceptTouchEvent(false)
+            }
+        }
+        return super.onTouchEvent(event)
+    }
+}
+
+private class CodePadJsBridge(
+    private val mainHandler: Handler,
+    private val onLog: (LogLevel, String, String, String?) -> Unit,
+    private val onClear: () -> Unit
+) {
+    @JavascriptInterface
+    fun postLog(levelStr: String, message: String, source: String, stackTrace: String) {
+        val level = when (levelStr.uppercase()) {
+            "INFO" -> LogLevel.INFO
+            "WARN" -> LogLevel.WARN
+            "ERROR" -> LogLevel.ERROR
+            "SYSTEM" -> LogLevel.SYSTEM
+            else -> LogLevel.LOG
+        }
+        mainHandler.post {
+            onLog(level, message, source, stackTrace.takeIf { it.isNotBlank() })
+        }
+    }
+
+    @JavascriptInterface
+    fun clearConsole() {
+        mainHandler.post {
+            onClear()
+        }
+    }
+}
+
+private class WebViewLoadTracker(
+    var lastStructuralSignature: String = "__UNSET__",
+    var lastCss: String = "__UNSET__",
+    var isShellLoaded: Boolean = false
+)
+
+/**
+ * Real Chromium WebView + Fallback Native DOM Live Preview Panel.
+ * - Executes full HTML5, CSS3 (Flexbox, Grid, Keyframes, Variables, Gradients), Canvas, SVG, and ES6+ JS.
+ * - Streams real V8 console logs & runtime/syntax errors directly to the Integrated Console Panel.
+ * - Supports 60fps zero-flicker live CSS/DOM updates during Auto Write Studio and live editing.
+ * - Supports interactive 1:1 vertical finger dragging on the top handle / header bar to resize.
  */
 @Composable
 fun NativeDomPreviewPanel(
@@ -84,6 +166,18 @@ fun NativeDomPreviewPanel(
     bodyStyle: ComputedNodeStyle,
     onDomButtonClick: (String) -> Unit,
     onRefreshRunJs: () -> Unit,
+    htmlCode: String = "",
+    cssCode: String = "",
+    jsCode: String = "",
+    runJs: Boolean = true,
+    isProgressiveAutoWrite: Boolean = false,
+    previewScaleMode: PreviewScaleMode = PreviewScaleMode.AUTO_FIT,
+    previewReloadNonce: Long = 0L,
+    onCycleScaleMode: (() -> Unit)? = null,
+    onToggleExpandHeight: (() -> Unit)? = null,
+    onWebConsoleLog: ((LogLevel, String, String, String?) -> Unit)? = null,
+    onWebConsoleClear: (() -> Unit)? = null,
+    onWebViewAttachedChanged: ((Boolean) -> Unit)? = null,
     onClose: (() -> Unit)? = null,
     isRecordingMode: Boolean = false,
     autoScrollPreview: Boolean = false,
@@ -91,35 +185,12 @@ fun NativeDomPreviewPanel(
     onResizeDeltaDp: ((Float) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val bg = bodyStyle.backgroundColor ?: MaterialTheme.colorScheme.background
-    val previewScrollState = rememberScrollState()
     val density = LocalDensity.current
 
     val resizeDraggableState = rememberDraggableState { deltaPx ->
         if (onResizeDeltaDp != null) {
-            // Dragging UP (deltaPx < 0) increases height; dragging DOWN (deltaPx > 0) decreases height
             val deltaDp = with(density) { (-deltaPx).toDp().value }
             onResizeDeltaDp(deltaDp)
-        }
-    }
-
-    androidx.compose.runtime.LaunchedEffect(autoScrollPreview) {
-        if (!autoScrollPreview) return@LaunchedEffect
-        while (true) {
-            if (!previewScrollState.isScrollInProgress) {
-                val target = previewScrollState.maxValue
-                val current = previewScrollState.value
-                val diff = target - current
-                if (diff > 0) {
-                    androidx.compose.runtime.withFrameNanos { }
-                    val step = kotlin.math.max(2f, diff * 0.28f).coerceAtMost(diff.toFloat())
-                    previewScrollState.dispatchRawDelta(step)
-                } else {
-                    kotlinx.coroutines.delay(32L)
-                }
-            } else {
-                kotlinx.coroutines.delay(32L)
-            }
         }
     }
 
@@ -159,7 +230,6 @@ fun NativeDomPreviewPanel(
                     )
             ) {
                 if (onResizeDeltaDp != null) {
-                    // Sleek Finger Drag Pill at the top edge
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -181,7 +251,7 @@ fun NativeDomPreviewPanel(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(34.dp)
-                        .padding(horizontal = 12.dp),
+                        .padding(horizontal = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -218,11 +288,53 @@ fun NativeDomPreviewPanel(
                     }
 
                     if (!isRecordingMode) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            if (onCycleScaleMode != null) {
+                                Surface(
+                                    onClick = onCycleScaleMode,
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f),
+                                    border = BorderStroke(
+                                        0.5.dp,
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                                    ),
+                                    modifier = Modifier.testTag("preview_scale_mode_button")
+                                ) {
+                                    Text(
+                                        text = previewScaleMode.label,
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        fontSize = 9.uiSp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            if (onToggleExpandHeight != null) {
+                                IconButton(
+                                    onClick = onToggleExpandHeight,
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .testTag("expand_preview_height_button")
+                                ) {
+                                    val isExpanded = maxBodyHeight.value >= 300f
+                                    Icon(
+                                        imageVector = if (isExpanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
+                                        contentDescription = if (isExpanded) "Compact Preview Height" else "Expand Preview Height",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+
                             IconButton(
                                 onClick = onRefreshRunJs,
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    .size(30.dp)
                                     .testTag("rerun_js_preview_button")
                             ) {
                                 Icon(
@@ -236,7 +348,7 @@ fun NativeDomPreviewPanel(
                                 IconButton(
                                     onClick = onClose,
                                     modifier = Modifier
-                                        .size(32.dp)
+                                        .size(30.dp)
                                         .testTag("close_preview_button")
                                 ) {
                                     Icon(
@@ -261,37 +373,344 @@ fun NativeDomPreviewPanel(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            // Rendered DOM Output Area (1:1 finger-controlled height when resizable)
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(
-                        if (onResizeDeltaDp != null) {
-                            Modifier.height(maxBodyHeight)
-                        } else {
-                            Modifier.heightIn(min = 90.dp, max = maxBodyHeight)
+            // Preview Viewport Area
+            val heightModifier = if (onResizeDeltaDp != null) {
+                Modifier.height(maxBodyHeight)
+            } else {
+                Modifier.heightIn(min = 90.dp, max = maxBodyHeight)
+            }
+
+            val isInspection = LocalInspectionMode.current
+            val hasRawCode = htmlCode.isNotBlank() || cssCode.isNotBlank() || jsCode.isNotBlank()
+
+            if (!isInspection && hasRawCode) {
+                ChromiumWebSandboxViewport(
+                    htmlCode = htmlCode,
+                    cssCode = cssCode,
+                    jsCode = jsCode,
+                    runJs = runJs,
+                    isProgressiveAutoWrite = isProgressiveAutoWrite,
+                    previewScaleMode = previewScaleMode,
+                    previewReloadNonce = previewReloadNonce,
+                    autoScrollPreview = autoScrollPreview,
+                    onWebConsoleLog = onWebConsoleLog,
+                    onWebConsoleClear = onWebConsoleClear,
+                    onWebViewAttachedChanged = onWebViewAttachedChanged,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(heightModifier)
+                )
+            } else {
+                FallbackComposeDomViewport(
+                    domNodes = domNodes,
+                    bodyStyle = bodyStyle,
+                    onDomButtonClick = onDomButtonClick,
+                    autoScrollPreview = autoScrollPreview,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(heightModifier)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Hardware-accelerated Chromium WebView sandbox viewport.
+ * Can also be mounted invisibly (0.dp) when the preview panel is collapsed in IDE mode so
+ * JavaScript V8 execution and Console logging stay continuously active.
+ */
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun ChromiumWebSandboxViewport(
+    htmlCode: String,
+    cssCode: String,
+    jsCode: String,
+    runJs: Boolean,
+    isProgressiveAutoWrite: Boolean,
+    previewScaleMode: PreviewScaleMode,
+    previewReloadNonce: Long,
+    autoScrollPreview: Boolean,
+    onWebConsoleLog: ((LogLevel, String, String, String?) -> Unit)?,
+    onWebConsoleClear: (() -> Unit)?,
+    onWebViewAttachedChanged: ((Boolean) -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val currentOnLog by rememberUpdatedState(onWebConsoleLog)
+    val currentOnClear by rememberUpdatedState(onWebConsoleClear)
+    val currentOnAttached by rememberUpdatedState(onWebViewAttachedChanged)
+    val loadTracker = remember { WebViewLoadTracker() }
+
+    val webView = remember {
+        runCatching {
+            val mainHandler = Handler(Looper.getMainLooper())
+            SandboxWebView(context).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                setBackgroundColor(AndroidColor.WHITE)
+                isFocusable = true
+                isFocusableInTouchMode = true
+                isVerticalScrollBarEnabled = true
+                isHorizontalScrollBarEnabled = false
+
+                settings.apply {
+                    javaScriptEnabled = true
+                    domStorageEnabled = true
+                    databaseEnabled = true
+                    allowFileAccess = true
+                    allowContentAccess = true
+                    mediaPlaybackRequiresUserGesture = false
+                    loadsImagesAutomatically = true
+                    useWideViewPort = true
+                    loadWithOverviewMode = true
+                    builtInZoomControls = true
+                    displayZoomControls = false
+                    setSupportZoom(true)
+                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                    cacheMode = WebSettings.LOAD_DEFAULT
+                    textZoom = 100
+                }
+
+                addJavascriptInterface(
+                    CodePadJsBridge(
+                        mainHandler = mainHandler,
+                        onLog = { level, msg, src, stack ->
+                            currentOnLog?.invoke(level, msg, src, stack)
+                        },
+                        onClear = {
+                            currentOnClear?.invoke()
                         }
-                    )
-                    .background(bg)
-                    .verticalScroll(previewScrollState)
-                    .padding((bodyStyle.paddingDp.coerceIn(10f, 16f)).dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (domNodes.isEmpty()) {
-                    Text(
-                        text = "No elements to preview yet. Add HTML in index.html.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    domNodes.forEach { node ->
-                        RenderNativeDomNode(
-                            node = node,
-                            inheritedTextColor = bodyStyle.textColor ?: MaterialTheme.colorScheme.onSurface,
-                            onDomButtonClick = onDomButtonClick
-                        )
+                    ),
+                    "CodePadBridge"
+                )
+
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?,
+                        request: WebResourceRequest?
+                    ): Boolean {
+                        val url = request?.url?.toString() ?: return false
+                        // Keep hash jumps and about:blank inside the sandbox; block external navigation away
+                        return !(url.startsWith("https://appassets.androidplatform.net") ||
+                            url.startsWith("about:blank") ||
+                            url.startsWith("data:") ||
+                            url.contains("#"))
+                    }
+
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        loadTracker.isShellLoaded = true
                     }
                 }
+
+                webChromeClient = object : WebChromeClient() {
+                    override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                        val cm = consoleMessage ?: return true
+                        val msg = cm.message() ?: return true
+                        // Catch parser-level SyntaxErrors or uncaught browser errors not already routed by CodePadBridge
+                        if (cm.messageLevel() == ConsoleMessage.MessageLevel.ERROR &&
+                            !msg.contains("ResizeObserver loop") &&
+                            msg != "Script error."
+                        ) {
+                            val line = cm.lineNumber()
+                            val src = if (line > 0) "script.js:$line" else "script.js"
+                            currentOnLog?.invoke(LogLevel.ERROR, msg, src, "$msg\n    at $src")
+                        }
+                        return true
+                    }
+
+                    override fun onJsAlert(
+                        view: WebView?,
+                        url: String?,
+                        message: String?,
+                        result: JsResult?
+                    ): Boolean {
+                        currentOnLog?.invoke(LogLevel.INFO, "[alert] ${message.orEmpty()}", "window.alert", null)
+                        result?.confirm()
+                        return true
+                    }
+
+                    override fun onJsConfirm(
+                        view: WebView?,
+                        url: String?,
+                        message: String?,
+                        result: JsResult?
+                    ): Boolean {
+                        currentOnLog?.invoke(LogLevel.INFO, "[confirm] ${message.orEmpty()} -> true", "window.confirm", null)
+                        result?.confirm()
+                        return true
+                    }
+
+                    override fun onJsPrompt(
+                        view: WebView?,
+                        url: String?,
+                        message: String?,
+                        defaultValue: String?,
+                        result: JsPromptResult?
+                    ): Boolean {
+                        val reply = defaultValue.orEmpty()
+                        currentOnLog?.invoke(LogLevel.INFO, "[prompt] ${message.orEmpty()} -> $reply", "window.prompt", null)
+                        result?.confirm(reply)
+                        return true
+                    }
+                }
+            }
+        }.getOrNull()
+    }
+
+    DisposableEffect(webView) {
+        if (webView != null) {
+            currentOnAttached?.invoke(true)
+        }
+        onDispose {
+            currentOnAttached?.invoke(false)
+            webView?.let { wv ->
+                runCatching {
+                    wv.stopLoading()
+                    wv.evaluateJavascript("if(window.__codepadCleanupTimers) window.__codepadCleanupTimers();", null)
+                    wv.loadUrl("about:blank")
+                    wv.removeAllViews()
+                    wv.destroy()
+                }
+            }
+        }
+    }
+
+    // Apply scale mode changes immediately without full reload
+    LaunchedEffect(webView, previewScaleMode) {
+        val wv = webView ?: return@LaunchedEffect
+        if (loadTracker.isShellLoaded) {
+            wv.evaluateJavascript(
+                "if(window.__codepadApplyLayoutGuard) window.__codepadApplyLayoutGuard('${previewScaleMode.name}');",
+                null
+            )
+        }
+    }
+
+    // Coordinate 60fps progressive DOM/CSS updates vs full HTML+JS loads
+    LaunchedEffect(webView, htmlCode, cssCode, jsCode, runJs, isProgressiveAutoWrite, previewReloadNonce) {
+        val wv = webView ?: return@LaunchedEffect
+        val (effectiveHtml, effectiveCss, effectiveJs) = WebSandboxEngine.resolveEffectiveCode(
+            htmlCode = htmlCode,
+            cssCode = cssCode,
+            jsCode = jsCode
+        )
+        val normalizedCss = WebSandboxEngine.normalizeUserCss(effectiveCss)
+        val effectiveRunJs = runJs && effectiveJs.isNotBlank() && WebSandboxEngine.isJsSyntacticallyComplete(effectiveJs)
+
+        // Structural signature determines whether a full document load vs fast DOM/CSS injection is needed
+        val structuralSignature = if (isProgressiveAutoWrite && !effectiveRunJs && !effectiveHtml.contains("<script", ignoreCase = true) && !effectiveHtml.contains("<link", ignoreCase = true)) {
+            "PROGRESSIVE_SHELL::$previewReloadNonce"
+        } else {
+            "$effectiveHtml|||$effectiveJs|||$effectiveRunJs|||$previewReloadNonce"
+        }
+
+        if (loadTracker.isShellLoaded && structuralSignature == loadTracker.lastStructuralSignature) {
+            // Fast path: Only CSS (or progressive HTML+CSS in AutoWrite) changed — update in <1ms without page flash!
+            if (isProgressiveAutoWrite && !effectiveRunJs) {
+                val jsBodyLiteral = WebSandboxEngine.toJsStringLiteral(effectiveHtml)
+                val jsCssLiteral = WebSandboxEngine.toJsStringLiteral(normalizedCss)
+                val scrollCmd = if (autoScrollPreview) {
+                    "window.scrollTo({ top: document.body.scrollHeight, behavior: 'auto' });"
+                } else ""
+                wv.evaluateJavascript(
+                    "if(window.__codepadUpdateDomAndCss){window.__codepadUpdateDomAndCss($jsBodyLiteral,$jsCssLiteral);$scrollCmd}",
+                    null
+                )
+                loadTracker.lastCss = normalizedCss
+            } else if (normalizedCss != loadTracker.lastCss) {
+                val jsCssLiteral = WebSandboxEngine.toJsStringLiteral(normalizedCss)
+                wv.evaluateJavascript(
+                    "if(window.__codepadUpdateCssOnly) window.__codepadUpdateCssOnly($jsCssLiteral);",
+                    null
+                )
+                loadTracker.lastCss = normalizedCss
+            }
+        } else {
+            // Full document load with real Chromium V8 execution
+            loadTracker.lastStructuralSignature = structuralSignature
+            loadTracker.lastCss = normalizedCss
+            val fullDocument = WebSandboxEngine.buildFullHtmlDocument(
+                rawHtmlCode = htmlCode,
+                rawCssCode = cssCode,
+                rawJsCode = jsCode,
+                runJs = runJs,
+                scaleMode = previewScaleMode
+            )
+            wv.loadDataWithBaseURL(
+                "https://appassets.androidplatform.net/",
+                fullDocument,
+                "text/html",
+                "UTF-8",
+                null
+            )
+        }
+    }
+
+    if (webView != null) {
+        AndroidView(
+            factory = { webView },
+            modifier = modifier
+                .clip(RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp))
+                .testTag("chromium_webview_preview")
+        )
+    }
+}
+
+@Composable
+private fun FallbackComposeDomViewport(
+    domNodes: List<NativeDomNode>,
+    bodyStyle: ComputedNodeStyle,
+    onDomButtonClick: (String) -> Unit,
+    autoScrollPreview: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val bg = bodyStyle.backgroundColor ?: MaterialTheme.colorScheme.background
+    val previewScrollState = rememberScrollState()
+
+    LaunchedEffect(autoScrollPreview) {
+        if (!autoScrollPreview) return@LaunchedEffect
+        while (true) {
+            if (!previewScrollState.isScrollInProgress) {
+                val target = previewScrollState.maxValue
+                val current = previewScrollState.value
+                val diff = target - current
+                if (diff > 0) {
+                    androidx.compose.runtime.withFrameNanos { }
+                    val step = kotlin.math.max(2f, diff * 0.28f).coerceAtMost(diff.toFloat())
+                    previewScrollState.dispatchRawDelta(step)
+                } else {
+                    kotlinx.coroutines.delay(32L)
+                }
+            } else {
+                kotlinx.coroutines.delay(32L)
+            }
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .background(bg)
+            .verticalScroll(previewScrollState)
+            .padding((bodyStyle.paddingDp.coerceIn(10f, 16f)).dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (domNodes.isEmpty()) {
+            Text(
+                text = "No elements to preview yet. Add HTML in index.html.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            domNodes.forEach { node ->
+                RenderNativeDomNode(
+                    node = node,
+                    inheritedTextColor = bodyStyle.textColor ?: MaterialTheme.colorScheme.onSurface,
+                    onDomButtonClick = onDomButtonClick
+                )
             }
         }
     }

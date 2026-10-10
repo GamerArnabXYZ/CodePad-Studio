@@ -81,6 +81,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.CodeTab
 import com.example.engine.ExportFormat
 import com.example.engine.SyntaxHighlightVisualTransformation
+import com.example.engine.WebSandboxEngine
 import com.example.ui.components.EditorSettingsSheet
 import com.example.ui.components.ExportProjectSheet
 import com.example.ui.components.ExportResultDialog
@@ -196,6 +197,54 @@ fun CodePadStudioScreen(
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
+        // Optional 1-Tap Split Banner when user pastes a full HTML document with <style> or <script> into index.html
+        val hasEmbeddedBlocks = remember(uiState.activeTab, uiState.htmlCode) {
+            uiState.activeTab == CodeTab.INDEX_HTML && WebSandboxEngine.hasEmbeddedStyleOrScript(uiState.htmlCode)
+        }
+        AnimatedVisibility(
+            visible = hasEmbeddedBlocks,
+            enter = expandVertically(tween(180)) + fadeIn(tween(180)),
+            exit = shrinkVertically(tween(150)) + fadeOut(tween(150))
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Embedded <style> / <script> detected in HTML",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Surface(
+                        onClick = { viewModel.splitEmbeddedHtmlIntoTabs() },
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.testTag("split_embedded_html_button")
+                    ) {
+                        Text(
+                            text = "Split to CSS/JS Tabs",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 9.5.uiSp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+            }
+        }
+
         // 3. Synchronized Code Editor with Exact Line-Height Gutter
         SynchronizedCodeEditorWithGutter(
             textFieldValue = textFieldValue,
@@ -216,28 +265,44 @@ fun CodePadStudioScreen(
                 .fillMaxWidth()
         )
 
-        // 4. Collapsible Live Preview or Console Panel
-        AnimatedVisibility(
-            visible = uiState.isPreviewVisible,
-            enter = expandVertically(tween(200)) + fadeIn(tween(200)),
-            exit = shrinkVertically(tween(180)) + fadeOut(tween(180))
-        ) {
-            Box(
-                modifier = Modifier
+        // 4. Collapsible Live Preview (keeps Chromium WebView mounted at 0.dp when collapsed so Console still executes real V8 JS)
+        Box(
+            modifier = if (uiState.isPreviewVisible) {
+                Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
                     .padding(horizontal = 10.dp, vertical = 6.dp)
-            ) {
-                NativeDomPreviewPanel(
-                    domNodes = uiState.domNodes,
-                    bodyStyle = uiState.bodyStyle,
-                    onDomButtonClick = { fn -> viewModel.onNativeDomButtonClicked(fn) },
-                    onRefreshRunJs = { viewModel.rebuildNativePreview(runTopLevelJs = true) },
-                    onClose = { viewModel.togglePreview() },
-                    maxBodyHeight = uiState.previewSectionHeightDp.dp,
-                    onResizeDeltaDp = { deltaDp -> viewModel.adjustPreviewSectionHeight(deltaDp) }
-                )
+            } else {
+                Modifier
+                    .fillMaxWidth()
+                    .height(0.dp)
             }
+        ) {
+            NativeDomPreviewPanel(
+                domNodes = uiState.domNodes,
+                bodyStyle = uiState.bodyStyle,
+                onDomButtonClick = { fn -> viewModel.onNativeDomButtonClicked(fn) },
+                onRefreshRunJs = { viewModel.forceReloadPreview() },
+                htmlCode = uiState.htmlCode,
+                cssCode = uiState.cssCode,
+                jsCode = uiState.jsCode,
+                runJs = true,
+                isProgressiveAutoWrite = false,
+                previewScaleMode = uiState.previewScaleMode,
+                previewReloadNonce = uiState.previewReloadNonce,
+                onCycleScaleMode = { viewModel.cyclePreviewScaleMode() },
+                onToggleExpandHeight = { viewModel.togglePreviewExpandedHeight() },
+                onWebConsoleLog = { level, msg, src, stack ->
+                    viewModel.onWebConsoleMessage(level, msg, src, stack)
+                },
+                onWebConsoleClear = { viewModel.onWebConsoleClear() },
+                onWebViewAttachedChanged = { attached ->
+                    viewModel.setWebViewEngineAttached(attached)
+                },
+                onClose = { viewModel.togglePreview() },
+                maxBodyHeight = uiState.previewSectionHeightDp.dp,
+                onResizeDeltaDp = { deltaDp -> viewModel.adjustPreviewSectionHeight(deltaDp) }
+            )
         }
 
         AnimatedVisibility(
@@ -255,7 +320,7 @@ fun CodePadStudioScreen(
                     logs = uiState.consoleLogs,
                     activeFilter = uiState.consoleFilter,
                     onSelectFilter = { viewModel.setConsoleFilter(it) },
-                    onSimulateError = { viewModel.triggerSimulatedStackTraceError() },
+                    onSimulateError = { viewModel.forceReloadPreview() },
                     onClearConsole = { viewModel.clearConsole() },
                     onClose = { viewModel.toggleConsole() }
                 )
@@ -276,6 +341,14 @@ fun CodePadStudioScreen(
                     selection = TextRange(newCursor)
                 )
                 viewModel.onCodeChanged(newText, newCursor)
+            },
+            onClearActiveTab = {
+                textFieldValue = TextFieldValue(text = "", selection = TextRange(0))
+                viewModel.clearActiveTabCode()
+            },
+            onClearAllTabs = {
+                textFieldValue = TextFieldValue(text = "", selection = TextRange(0))
+                viewModel.clearAllTabsForNewSnippet()
             }
         )
 
@@ -649,7 +722,9 @@ private fun SynchronizedCodeEditorWithGutter(
  */
 @Composable
 private fun QuickSymbolBar(
-    onInsertSymbol: (String) -> Unit
+    onInsertSymbol: (String) -> Unit,
+    onClearActiveTab: () -> Unit = {},
+    onClearAllTabs: () -> Unit = {}
 ) {
     val symbols = listOf("  ", "<", ">", "/", "=", "\"", "'", "{", "}", "(", ")", ";", ":", ".", "#")
 
@@ -683,6 +758,40 @@ private fun QuickSymbolBar(
                         modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
                     )
                 }
+            }
+
+            Surface(
+                onClick = onClearActiveTab,
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.testTag("clear_active_tab_button")
+            ) {
+                Text(
+                    text = "Clear Tab",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 9.5.uiSp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                )
+            }
+
+            Surface(
+                onClick = onClearAllTabs,
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.65f),
+                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)),
+                modifier = Modifier.testTag("clear_all_tabs_button")
+            ) {
+                Text(
+                    text = "Clear All",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 9.5.uiSp,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                )
             }
         }
     }
