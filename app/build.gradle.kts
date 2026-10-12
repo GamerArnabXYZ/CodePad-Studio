@@ -9,11 +9,11 @@ plugins {
 }
 
 android {
-  namespace = "com.example"
+  namespace = "com.arnix.codepad.studio"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.codepadstudio.cpkxqz"
+    applicationId = "com.arnix.codepad.studio"
     minSdk = 24
     targetSdk = 36
     versionCode = 1

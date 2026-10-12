@@ -1,0 +1,183 @@
+package com.arnix.codepad.studio
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.Videocam
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.arnix.codepad.studio.data.CodePadDatabase
+import com.arnix.codepad.studio.data.CodeProjectRepository
+import com.arnix.codepad.studio.engine.TypingSoundEngine
+import com.arnix.codepad.studio.ui.AutoWriteStudioScreen
+import com.arnix.codepad.studio.ui.CodePadStudioScreen
+import com.arnix.codepad.studio.ui.MoreStudioScreen
+import com.arnix.codepad.studio.ui.theme.MyApplicationTheme
+import com.arnix.codepad.studio.viewmodel.StudioModule
+import com.arnix.codepad.studio.viewmodel.StudioViewModel
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContent {
+            CodePadStudioAppRoot()
+        }
+    }
+}
+
+@Composable
+fun CodePadStudioAppRoot() {
+    val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        TypingSoundEngine.initialize(context)
+    }
+    val repository = remember {
+        val db = CodePadDatabase.getInstance(context)
+        CodeProjectRepository(db.codeProjectDao())
+    }
+    val studioViewModel: StudioViewModel = viewModel(
+        factory = StudioViewModel.provideFactory(repository)
+    )
+    val uiState by studioViewModel.uiState.collectAsStateWithLifecycle()
+
+    BackHandler(enabled = uiState.isRecordingMode || uiState.activeModule != StudioModule.CODEPAD_IDE) {
+        if (uiState.isRecordingMode) {
+            studioViewModel.handleTripleTapGesture()
+        } else {
+            studioViewModel.selectModule(StudioModule.CODEPAD_IDE)
+        }
+    }
+
+    val showNavigationBar =
+        !(uiState.activeModule == StudioModule.AUTO_WRITE_STUDIO && uiState.isRecordingMode)
+
+    MyApplicationTheme(
+        darkTheme = uiState.isDarkTheme,
+        uiFontScale = uiState.uiFontScale
+    ) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = MaterialTheme.colorScheme.background,
+            bottomBar = {
+                if (showNavigationBar) {
+                    NavigationBar {
+                        val isIde = uiState.activeModule == StudioModule.CODEPAD_IDE
+                        NavigationBarItem(
+                            selected = isIde,
+                            onClick = { studioViewModel.selectModule(StudioModule.CODEPAD_IDE) },
+                            icon = {
+                                Icon(
+                                    imageVector = if (isIde) Icons.Filled.Code else Icons.Outlined.Code,
+                                    contentDescription = "Editor"
+                                )
+                            },
+                            label = { Text("Editor") },
+                            modifier = Modifier.testTag("nav_editor")
+                        )
+
+                        val isAutoWrite = uiState.activeModule == StudioModule.AUTO_WRITE_STUDIO
+                        NavigationBarItem(
+                            selected = isAutoWrite,
+                            onClick = { studioViewModel.selectModule(StudioModule.AUTO_WRITE_STUDIO) },
+                            icon = {
+                                Icon(
+                                    imageVector = if (isAutoWrite) {
+                                        Icons.Filled.Videocam
+                                    } else {
+                                        Icons.Outlined.Videocam
+                                    },
+                                    contentDescription = "Rec"
+                                )
+                            },
+                            label = { Text("Rec") },
+                            modifier = Modifier.testTag("nav_rec")
+                        )
+
+                        val isMore = uiState.activeModule == StudioModule.MORE
+                        NavigationBarItem(
+                            selected = isMore,
+                            onClick = { studioViewModel.selectModule(StudioModule.MORE) },
+                            icon = {
+                                Icon(
+                                    imageVector = if (isMore) {
+                                        Icons.Filled.MoreHoriz
+                                    } else {
+                                        Icons.Outlined.MoreHoriz
+                                    },
+                                    contentDescription = "More"
+                                )
+                            },
+                            label = { Text("More") },
+                            modifier = Modifier.testTag("nav_more")
+                        )
+                    }
+                }
+            }
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                Crossfade(
+                    targetState = uiState.activeModule,
+                    animationSpec = tween(200),
+                    label = "moduleCrossfade"
+                ) { module ->
+                    when (module) {
+                        StudioModule.CODEPAD_IDE -> {
+                            CodePadStudioScreen(
+                                uiState = uiState,
+                                viewModel = studioViewModel,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+
+                        StudioModule.AUTO_WRITE_STUDIO -> {
+                            AutoWriteStudioScreen(
+                                uiState = uiState,
+                                viewModel = studioViewModel,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+
+                        StudioModule.MORE -> {
+                            MoreStudioScreen(
+                                uiState = uiState,
+                                viewModel = studioViewModel,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
