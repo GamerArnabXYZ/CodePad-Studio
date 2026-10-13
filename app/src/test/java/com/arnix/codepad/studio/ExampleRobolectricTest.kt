@@ -274,4 +274,58 @@ class ExampleRobolectricTest {
         val heading = wrapper.children.first { it.id == "heading" }
         assertEquals("Canvas Ready", heading.text)
     }
+
+    @Test
+    fun typingSoundEngine_initializesAndPlaysAllProfilesWithoutExceptions() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        TypingSoundEngine.initialize(context)
+
+        TypingSoundProfile.entries.forEach { profile ->
+            TypingSoundEngine.playKeyTick(
+                profile = profile,
+                typedChar = 'a',
+                isManualTest = true,
+                volume = 0.8f,
+                minGapMs = 50L,
+                pitchVariation = true
+            )
+            // Test spacebar / deep key variation
+            TypingSoundEngine.playKeyTick(
+                profile = profile,
+                typedChar = '\n',
+                isManualTest = true,
+                volume = 0.8f,
+                minGapMs = 50L,
+                pitchVariation = true
+            )
+        }
+        TypingSoundEngine.stopAll()
+    }
+
+    @Test
+    fun studioUiState_supportsAllRecCustomizationOptions() {
+        var state = com.arnix.codepad.studio.viewmodel.StudioUiState()
+        assertEquals(0.85f, state.watermarkOpacity, 0.01f)
+        assertEquals(OverlaySizeScale.STANDARD, state.watermarkSizeScale)
+        assertEquals(0.85f, state.typingSoundVolume, 0.01f)
+        assertEquals(75L, state.typingSoundMinGapMs)
+        assertTrue(state.typingSoundPitchVar)
+        assertTrue(state.autoWriteShowGutter)
+
+        state = state.copy(
+            watermarkOpacity = 0.5f,
+            watermarkSizeScale = OverlaySizeScale.LARGE,
+            typingSoundVolume = 0.9f,
+            typingSoundMinGapMs = 120L,
+            typingSoundPitchVar = false,
+            autoWriteShowGutter = false
+        )
+        assertEquals(0.5f, state.watermarkOpacity, 0.01f)
+        assertEquals(OverlaySizeScale.LARGE, state.watermarkSizeScale)
+        assertEquals(0.9f, state.typingSoundVolume, 0.01f)
+        assertEquals(120L, state.typingSoundMinGapMs)
+        assertFalse(state.typingSoundPitchVar)
+        assertFalse(state.autoWriteShowGutter)
+    }
 }
+

@@ -255,7 +255,9 @@ fun AutoWriteStudioScreen(
                         handle = uiState.creatorHandle,
                         style = uiState.watermarkStyle,
                         isOverlay = false,
-                        onClick = {}
+                        onClick = {},
+                        opacity = uiState.watermarkOpacity,
+                        sizeScale = uiState.watermarkSizeScale
                     )
                 }
             }
@@ -501,18 +503,20 @@ fun AutoWriteStudioScreen(
                                         color = editorPalette.divider.copy(alpha = 0.55f)
                                     )
                                     .drawBehind {
-                                        val gutterWidthPx = 42.dp.toPx()
-                                        val dividerWidthPx = 1.dp.toPx()
-                                        drawRect(
-                                            color = editorPalette.gutterBackground,
-                                            topLeft = Offset.Zero,
-                                            size = Size(width = gutterWidthPx, height = size.height)
-                                        )
-                                        drawRect(
-                                            color = editorPalette.divider,
-                                            topLeft = Offset(x = gutterWidthPx, y = 0f),
-                                            size = Size(width = dividerWidthPx, height = size.height)
-                                        )
+                                        if (uiState.autoWriteShowGutter) {
+                                            val gutterWidthPx = 42.dp.toPx()
+                                            val dividerWidthPx = 1.dp.toPx()
+                                            drawRect(
+                                                color = editorPalette.gutterBackground,
+                                                topLeft = Offset.Zero,
+                                                size = Size(width = gutterWidthPx, height = size.height)
+                                            )
+                                            drawRect(
+                                                color = editorPalette.divider,
+                                                topLeft = Offset(x = gutterWidthPx, y = 0f),
+                                                size = Size(width = dividerWidthPx, height = size.height)
+                                            )
+                                        }
                                     }
                             ) {
                                 Column(
@@ -527,6 +531,7 @@ fun AutoWriteStudioScreen(
                                             CompletedAutoWriteCodeLineRow(
                                                 lineNum = idx + 1,
                                                 lineText = lineText,
+                                                showGutter = uiState.autoWriteShowGutter,
                                                 sharedCodeTextStyle = sharedCodeTextStyle,
                                                 editorPalette = editorPalette
                                             )
@@ -541,6 +546,7 @@ fun AutoWriteStudioScreen(
                                             lineText = activeLineText,
                                             isCurrentTabPane = isCurrentTabPane,
                                             isActivelyTyping = isActivelyTyping && isCurrentTabPane,
+                                            showGutter = uiState.autoWriteShowGutter,
                                             sharedCodeTextStyle = sharedCodeTextStyle,
                                             editorPalette = editorPalette
                                         )
@@ -561,7 +567,9 @@ fun AutoWriteStudioScreen(
                                     handle = uiState.creatorHandle,
                                     style = uiState.watermarkStyle,
                                     isOverlay = true,
-                                    onClick = {}
+                                    onClick = {},
+                                    opacity = uiState.watermarkOpacity,
+                                    sizeScale = uiState.watermarkSizeScale
                                 )
                             }
                         }
@@ -578,7 +586,9 @@ fun AutoWriteStudioScreen(
                                     handle = uiState.creatorHandle,
                                     style = uiState.watermarkStyle,
                                     isOverlay = false,
-                                    onClick = {}
+                                    onClick = {},
+                                    opacity = uiState.watermarkOpacity,
+                                    sizeScale = uiState.watermarkSizeScale
                                 )
                             }
                         }
@@ -595,7 +605,9 @@ fun AutoWriteStudioScreen(
                                     handle = uiState.creatorHandle,
                                     style = uiState.watermarkStyle,
                                     isOverlay = false,
-                                    onClick = {}
+                                    onClick = {},
+                                    opacity = uiState.watermarkOpacity,
+                                    sizeScale = uiState.watermarkSizeScale
                                 )
                             }
                         }
@@ -877,7 +889,9 @@ fun AutoWriteStudioScreen(
                         handle = uiState.creatorHandle,
                         style = uiState.watermarkStyle,
                         isOverlay = false,
-                        onClick = {}
+                        onClick = {},
+                        opacity = uiState.watermarkOpacity,
+                        sizeScale = uiState.watermarkSizeScale
                     )
                 }
             }
@@ -936,6 +950,7 @@ private fun SmoothAutoWriteProgressBar(
 private fun CompletedAutoWriteCodeLineRow(
     lineNum: Int,
     lineText: AnnotatedString,
+    showGutter: Boolean,
     sharedCodeTextStyle: TextStyle,
     editorPalette: EditorColorPalette
 ) {
@@ -943,24 +958,26 @@ private fun CompletedAutoWriteCodeLineRow(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top
     ) {
-        Text(
-            text = lineNum.toString(),
-            style = sharedCodeTextStyle.copy(
-                fontWeight = FontWeight.Normal,
-                color = editorPalette.gutterText,
-                textAlign = TextAlign.End
-            ),
-            modifier = Modifier
-                .width(42.dp)
-                .padding(end = 8.dp, top = 2.dp, bottom = 2.dp)
-        )
+        if (showGutter) {
+            Text(
+                text = lineNum.toString(),
+                style = sharedCodeTextStyle.copy(
+                    fontWeight = FontWeight.Normal,
+                    color = editorPalette.gutterText,
+                    textAlign = TextAlign.End
+                ),
+                modifier = Modifier
+                    .width(42.dp)
+                    .padding(end = 8.dp, top = 2.dp, bottom = 2.dp)
+            )
+        }
 
         Text(
             text = lineText,
             style = sharedCodeTextStyle,
             modifier = Modifier
                 .weight(1f)
-                .padding(start = 11.dp, end = 10.dp, top = 2.dp, bottom = 2.dp)
+                .padding(start = if (showGutter) 11.dp else 14.dp, end = 10.dp, top = 2.dp, bottom = 2.dp)
         )
     }
 }
@@ -971,6 +988,7 @@ private fun ActiveAutoWriteCodeLineRow(
     lineText: AnnotatedString,
     isCurrentTabPane: Boolean,
     isActivelyTyping: Boolean,
+    showGutter: Boolean,
     sharedCodeTextStyle: TextStyle,
     editorPalette: EditorColorPalette
 ) {
@@ -992,28 +1010,32 @@ private fun ActiveAutoWriteCodeLineRow(
         modifier = Modifier
             .fillMaxWidth()
             .drawBehind {
-                val gutterWidthPx = 42.dp.toPx()
-                val dividerWidthPx = 1.dp.toPx()
                 drawRect(color = activeBg, size = size)
-                drawRect(
-                    color = dividerColor,
-                    topLeft = Offset(x = gutterWidthPx, y = 0f),
-                    size = Size(width = dividerWidthPx, height = size.height)
-                )
+                if (showGutter) {
+                    val gutterWidthPx = 42.dp.toPx()
+                    val dividerWidthPx = 1.dp.toPx()
+                    drawRect(
+                        color = dividerColor,
+                        topLeft = Offset(x = gutterWidthPx, y = 0f),
+                        size = Size(width = dividerWidthPx, height = size.height)
+                    )
+                }
             },
         verticalAlignment = Alignment.Top
     ) {
-        Text(
-            text = lineNum.toString(),
-            style = sharedCodeTextStyle.copy(
-                fontWeight = FontWeight.Bold,
-                color = editorPalette.gutterActiveText,
-                textAlign = TextAlign.End
-            ),
-            modifier = Modifier
-                .width(42.dp)
-                .padding(end = 8.dp, top = 2.dp, bottom = 2.dp)
-        )
+        if (showGutter) {
+            Text(
+                text = lineNum.toString(),
+                style = sharedCodeTextStyle.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = editorPalette.gutterActiveText,
+                    textAlign = TextAlign.End
+                ),
+                modifier = Modifier
+                    .width(42.dp)
+                    .padding(end = 8.dp, top = 2.dp, bottom = 2.dp)
+            )
+        }
 
         val renderedLine = if (isCurrentTabPane) {
             buildAnnotatedString {

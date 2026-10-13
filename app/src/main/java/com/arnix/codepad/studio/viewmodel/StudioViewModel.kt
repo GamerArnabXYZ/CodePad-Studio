@@ -288,6 +288,8 @@ data class StudioUiState(
     val creatorHandle: String = "@codewitharnix",
     val watermarkPosition: WatermarkPosition = WatermarkPosition.FOOTER_BAR,
     val watermarkStyle: WatermarkStyle = WatermarkStyle.PILL_BADGE,
+    val watermarkOpacity: Float = 0.85f,
+    val watermarkSizeScale: OverlaySizeScale = OverlaySizeScale.STANDARD,
     val showEndCtaAnimation: Boolean = true,
     val endCtaStyle: EndCtaStyle = EndCtaStyle.SUBSCRIBE_CARD,
     val endCtaPosition: EndCtaPosition = EndCtaPosition.CODE_BOTTOM_OVERLAY,
@@ -321,6 +323,10 @@ data class StudioUiState(
     val viralHookAccentIndex: Int = 0,
     val viralHookSizeScale: OverlaySizeScale = OverlaySizeScale.STANDARD,
     val typingSoundProfile: TypingSoundProfile = TypingSoundProfile.MECH_THOCK,
+    val typingSoundVolume: Float = 0.85f,
+    val typingSoundMinGapMs: Long = 75L,
+    val typingSoundPitchVar: Boolean = true,
+    val autoWriteShowGutter: Boolean = true,
     val useRecordingCountdown: Boolean = true,
     val recordingCountdownSeconds: Int = 0,
     val keepPreviewOpenInRecord: Boolean = true,
@@ -1475,6 +1481,17 @@ class StudioViewModel(
         triggerDebouncedAutoSave()
     }
 
+    fun updateWatermarkOpacity(opacity: Float) {
+        val clamped = opacity.coerceIn(0.15f, 1.0f)
+        _uiState.update { it.copy(watermarkOpacity = clamped) }
+        triggerDebouncedAutoSave()
+    }
+
+    fun selectWatermarkSizeScale(scale: OverlaySizeScale) {
+        _uiState.update { it.copy(watermarkSizeScale = scale) }
+        triggerDebouncedAutoSave()
+    }
+
     fun toggleShowEndCtaAnimation() {
         _uiState.update {
             val next = !it.showEndCtaAnimation
@@ -1699,7 +1716,14 @@ class StudioViewModel(
         if (profile == TypingSoundProfile.OFF) {
             TypingSoundEngine.release()
         } else {
-            TypingSoundEngine.playKeyTick(profile, 'a')
+            TypingSoundEngine.playKeyTick(
+                profile = profile,
+                typedChar = 'a',
+                isManualTest = true,
+                volume = _uiState.value.typingSoundVolume,
+                minGapMs = _uiState.value.typingSoundMinGapMs,
+                pitchVariation = _uiState.value.typingSoundPitchVar
+            )
         }
         triggerDebouncedAutoSave()
     }
@@ -1709,6 +1733,28 @@ class StudioViewModel(
         val nextIdx = (_uiState.value.typingSoundProfile.ordinal + 1) % entries.size
         val nextProfile = entries[nextIdx]
         selectTypingSoundProfile(nextProfile)
+    }
+
+    fun updateTypingSoundVolume(volume: Float) {
+        val clamped = volume.coerceIn(0.1f, 1.0f)
+        _uiState.update { it.copy(typingSoundVolume = clamped) }
+        triggerDebouncedAutoSave()
+    }
+
+    fun updateTypingSoundMinGap(gapMs: Long) {
+        val clamped = gapMs.coerceIn(40L, 200L)
+        _uiState.update { it.copy(typingSoundMinGapMs = clamped) }
+        triggerDebouncedAutoSave()
+    }
+
+    fun toggleTypingSoundPitchVar() {
+        _uiState.update { it.copy(typingSoundPitchVar = !it.typingSoundPitchVar) }
+        triggerDebouncedAutoSave()
+    }
+
+    fun toggleAutoWriteShowGutter() {
+        _uiState.update { it.copy(autoWriteShowGutter = !it.autoWriteShowGutter) }
+        triggerDebouncedAutoSave()
     }
 
     fun toggleUseRecordingCountdown() {
@@ -1950,6 +1996,7 @@ class StudioViewModel(
                         continue
                     } else {
                         updateProgressiveAutoWritePreview(force = true)
+                        TypingSoundEngine.stopAll()
                         _uiState.update {
                             it.copy(
                                 isAutoWritePlaying = false,
@@ -1973,7 +2020,7 @@ class StudioViewModel(
 
                 var stepsToAdvance = 1
                 val effectiveDelayMs: Long
-
+                // Real-time dynamic pacing calculation
                 if (state.autoDurationTarget != AutoDurationTarget.MANUAL) {
                     val remSteps = max(1, remainingSteps)
                     val remTransitions = countRemainingTransitions(state)
@@ -1981,36 +2028,30 @@ class StudioViewModel(
                         state.autoDurationTarget == AutoDurationTarget.SEC_20
                     val perTransitionMs = if (isShortPreset) 1080L else 1400L
                     val remainingTypingWallMs = max(
-                        80L,
+                        50L,
                         typingBudgetDeadlineWallMs - System.currentTimeMillis() - (remTransitions * perTransitionMs)
                     )
                     val idealMsPerStep = remainingTypingWallMs.toFloat() / remSteps.toFloat()
-                    val maxNaturalDelayMs = when (state.autoDurationTarget) {
-                        AutoDurationTarget.SEC_15 -> 16f
-                        AutoDurationTarget.SEC_20 -> 22f
-                        AutoDurationTarget.SEC_30 -> 30f
-                        AutoDurationTarget.SEC_45 -> 38f
-                        AutoDurationTarget.SEC_60 -> 44f
-                        AutoDurationTarget.MANUAL -> 44f
-                    }
-                    val cappedMsPerStep = min(idealMsPerStep, maxNaturalDelayMs)
+                    val targetMsPerStep = idealMsPerStep * cadenceMultiplier
 
-                    if (cappedMsPerStep < 12.5f) {
-                        // High-speed 60fps multi-step pacing so long code still finishes inside 15s/20s/30s/1m!
-                        stepsToAdvance = ceil(12.5f / max(1.0f, cappedMsPerStep)).toInt().coerceIn(1, 16)
-                        effectiveDelayMs = 11L
+                    if (targetMsPerStep < 18.0f) {
+                        // Batch multiple chars per frame when code is long so typing animation doesn't lag
+                        stepsToAdvance = ceil(18.0f / max(1.0f, targetMsPerStep)).toInt().coerceIn(1, 14)
+                        effectiveDelayMs = 18L
                     } else {
                         stepsToAdvance = 1
-                        effectiveDelayMs = (cappedMsPerStep * cadenceMultiplier).toLong().coerceIn(8L, 60L)
+                        effectiveDelayMs = targetMsPerStep.toLong().coerceIn(18L, 95L)
                     }
                 } else {
                     val level = state.speedLevel.coerceIn(1, 20)
-                    val baseDelayMs = max(10L, (108L - (level * 4.8f)).toLong())
-                    val rawDelay = (baseDelayMs * cadenceMultiplier).toLong().coerceAtLeast(8L)
-                    effectiveDelayMs = if (state.isTurboMode) {
-                        max(6L, rawDelay / 2L)
+                    val baseDelayMs = max(18L, (115L - (level * 4.8f)).toLong())
+                    val rawDelay = (baseDelayMs * cadenceMultiplier).toLong().coerceAtLeast(18L)
+                    if (state.isTurboMode) {
+                        stepsToAdvance = 2
+                        effectiveDelayMs = max(18L, rawDelay / 2L)
                     } else {
-                        rawDelay
+                        stepsToAdvance = 1
+                        effectiveDelayMs = rawDelay
                     }
                 }
 
@@ -2052,10 +2093,18 @@ class StudioViewModel(
                 }
                 remainingSteps = max(1, remainingSteps - actualAdvancedSteps)
 
-                // Synthesized ASMR Mechanical Key Tick for zero-editing creator videos
-                val soundProfile = _uiState.value.typingSoundProfile
+                // Synthesized ASMR Mechanical Key Tick - cadence-controlled with randomized intervals
+                val currentSnapshot = _uiState.value
+                val soundProfile = currentSnapshot.typingSoundProfile
                 if (soundProfile != TypingSoundProfile.OFF && actualAdvancedSteps > 0) {
-                    TypingSoundEngine.playKeyTick(soundProfile, lastTypedChar)
+                    TypingSoundEngine.playKeyTick(
+                        profile = soundProfile,
+                        typedChar = lastTypedChar,
+                        isManualTest = false,
+                        volume = currentSnapshot.typingSoundVolume,
+                        minGapMs = currentSnapshot.typingSoundMinGapMs,
+                        pitchVariation = currentSnapshot.typingSoundPitchVar
+                    )
                 }
 
                 // Real-time Live Preview update (deduplicated & frame-paced for large code)

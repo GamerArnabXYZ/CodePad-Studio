@@ -35,10 +35,12 @@ import androidx.compose.material.icons.filled.FolderSpecial
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.NotificationAdd
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.outlined.Code
@@ -70,6 +72,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -80,19 +84,34 @@ import androidx.compose.ui.unit.sp
 import com.arnix.codepad.studio.data.ProjectPreset
 import com.arnix.codepad.studio.data.ProjectTemplates
 import com.arnix.codepad.studio.engine.ExportFormat
+import com.arnix.codepad.studio.engine.PreviewScaleMode
 import com.arnix.codepad.studio.engine.TypingSoundEngine
 import com.arnix.codepad.studio.engine.TypingSoundProfile
+import com.arnix.codepad.studio.ui.components.CreatorEndCtaAnimationOverlay
+import com.arnix.codepad.studio.ui.components.CreatorWatermarkBadge
 import com.arnix.codepad.studio.ui.components.ExportProjectSheet
 import com.arnix.codepad.studio.ui.components.ExportResultDialog
 import com.arnix.codepad.studio.ui.components.RenameProjectDialog
+import com.arnix.codepad.studio.ui.components.ViralHookHeaderBanner
 import com.arnix.codepad.studio.ui.theme.JetBrainsMonoFontFamily
 import com.arnix.codepad.studio.ui.theme.uiSp
 import com.arnix.codepad.studio.viewmodel.AutoDurationTarget
+import com.arnix.codepad.studio.viewmodel.CTA_PLATFORM_QUICK_PRESETS
+import com.arnix.codepad.studio.viewmodel.CreatorAccentPalette
+import com.arnix.codepad.studio.viewmodel.CtaDisplayTiming
+import com.arnix.codepad.studio.viewmodel.CtaPlatformQuickPreset
+import com.arnix.codepad.studio.viewmodel.EndCtaPosition
 import com.arnix.codepad.studio.viewmodel.EndCtaStyle
+import com.arnix.codepad.studio.viewmodel.OverlaySizeScale
 import com.arnix.codepad.studio.viewmodel.ShortsBackdropPreset
 import com.arnix.codepad.studio.viewmodel.StudioModule
 import com.arnix.codepad.studio.viewmodel.StudioUiState
 import com.arnix.codepad.studio.viewmodel.StudioViewModel
+import com.arnix.codepad.studio.viewmodel.TypingSequenceMetrics
+import com.arnix.codepad.studio.viewmodel.VIRAL_HOOK_QUICK_PRESETS
+import com.arnix.codepad.studio.viewmodel.ViralHookAlignment
+import com.arnix.codepad.studio.viewmodel.ViralHookPosition
+import com.arnix.codepad.studio.viewmodel.ViralHookQuickPreset
 import com.arnix.codepad.studio.viewmodel.ViralHookStyle
 import com.arnix.codepad.studio.viewmodel.WatermarkPosition
 import com.arnix.codepad.studio.viewmodel.WatermarkStyle
@@ -135,7 +154,9 @@ fun MoreStudioScreen(
         "Viral Hook",
         "End CTA",
         "Video Backdrop",
+        "Rec Code Window",
         "Recording Flow",
+        "Live Preview",
         "About App",
         "About Developer"
     )
@@ -170,7 +191,7 @@ fun MoreStudioScreen(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Har setting alag-alag section mein organized hai",
+                            text = "Har item ke all customizations dedicated sections mein",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -236,7 +257,7 @@ fun MoreStudioScreen(
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 1) {
                 SectionCard(
                     title = "Theme & Appearance",
-                    subtitle = "Dark mode aur UI visual scales",
+                    subtitle = "Dark mode aur UI visual scaling",
                     icon = Icons.Filled.FormatPaint
                 ) {
                     DisplayAndThemeSectionContent(
@@ -293,65 +314,84 @@ fun MoreStudioScreen(
                 }
             }
 
-            // Section 5: Typing Sound Effects (Mechanical ASMR)
+            // Section 5: Typing Sound Effects (Mechanical ASMR) - FULL CUSTOMIZATIONS
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 5) {
                 SectionCard(
                     title = "ASMR Typing Sound Effects",
-                    subtitle = "Realistic mechanical keyboard clicks test & toggle karein",
+                    subtitle = "Authentic mechanical switches, volume, randomized breaks & pitch",
                     icon = Icons.Filled.VolumeUp
                 ) {
                     TypingSoundSectionContent(
                         currentProfile = uiState.typingSoundProfile,
+                        volume = uiState.typingSoundVolume,
+                        minGapMs = uiState.typingSoundMinGapMs,
+                        pitchVariation = uiState.typingSoundPitchVar,
                         onSelectProfile = { profile ->
                             viewModel.selectTypingSoundProfile(profile)
-                            TypingSoundEngine.playKeyTick(profile, 'a')
                         },
+                        onVolumeChange = { viewModel.updateTypingSoundVolume(it) },
+                        onMinGapChange = { viewModel.updateTypingSoundMinGap(it) },
+                        onTogglePitchVariation = { viewModel.toggleTypingSoundPitchVar() },
                         onTestSound = {
-                            TypingSoundEngine.playKeyTick(uiState.typingSoundProfile, 'a')
+                            TypingSoundEngine.playKeyTick(
+                                profile = uiState.typingSoundProfile,
+                                typedChar = 'a',
+                                isManualTest = true,
+                                volume = uiState.typingSoundVolume,
+                                minGapMs = uiState.typingSoundMinGapMs,
+                                pitchVariation = uiState.typingSoundPitchVar
+                            )
                         }
                     )
                 }
             }
 
-            // Section 6: Target Duration & Speed
+            // Section 6: Target Duration & Speed - FULL CUSTOMIZATIONS
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 6) {
                 SectionCard(
-                    title = "Target Duration & Turbo Speed",
-                    subtitle = "Video length targets (15s, 30s, 60s) aur 2× turbo",
+                    title = "Target Duration & Speed Controls",
+                    subtitle = "Shorts duration presets, manual speed slider, turbo burst & live metrics",
                     icon = Icons.Filled.Speed
                 ) {
                     SpeedAndDurationSectionContent(
                         currentTarget = uiState.autoDurationTarget,
+                        speedLevel = uiState.speedLevel,
                         isTurboMode = uiState.isTurboMode,
+                        sequenceMetrics = uiState.sequenceMetrics,
                         onSelectTarget = { viewModel.selectAutoDurationTarget(it) },
+                        onSpeedLevelChange = { viewModel.setSpeedLevel(it) },
                         onToggleTurbo = { viewModel.toggleTurboMode() }
                     )
                 }
             }
 
-            // Section 7: Creator Watermark & Handle Branding
+            // Section 7: Creator Watermark & Handle Branding - FULL CUSTOMIZATIONS
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 7) {
                 SectionCard(
-                    title = "Creator Watermark & Branding",
-                    subtitle = "Apna social handle, position aur badge style set karein",
+                    title = "Creator Watermark & Social Branding",
+                    subtitle = "Handle text, screen position, badge style, opacity & size scale",
                     icon = Icons.Filled.BrandingWatermark
                 ) {
                     WatermarkSectionContent(
                         creatorHandle = uiState.creatorHandle,
                         currentPosition = uiState.watermarkPosition,
                         currentStyle = uiState.watermarkStyle,
+                        opacity = uiState.watermarkOpacity,
+                        sizeScale = uiState.watermarkSizeScale,
                         onUpdateHandle = { viewModel.updateCreatorHandle(it) },
                         onSelectPosition = { viewModel.selectWatermarkPosition(it) },
-                        onSelectStyle = { viewModel.selectWatermarkStyle(it) }
+                        onSelectStyle = { viewModel.selectWatermarkStyle(it) },
+                        onOpacityChange = { viewModel.updateWatermarkOpacity(it) },
+                        onSelectSizeScale = { viewModel.selectWatermarkSizeScale(it) }
                     )
                 }
             }
 
-            // Section 8: Zero-Editing Viral Hook Header Banner
+            // Section 8: Zero-Editing Viral Hook Header Banner - FULL CUSTOMIZATIONS
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 8) {
                 SectionCard(
                     title = "Viral Hook Header Banner",
-                    subtitle = "Video hook text aur badge style customize karein",
+                    subtitle = "Headline, badge, 6 styles, transparent BG, alignment, colors & 1-tap presets",
                     icon = Icons.Filled.NotificationAdd
                 ) {
                     ViralHookSectionContent(
@@ -359,33 +399,82 @@ fun MoreStudioScreen(
                         hookBadge = uiState.viralHookBadge,
                         hookTitle = uiState.viralHookTitle,
                         hookStyle = uiState.viralHookStyle,
+                        hookPosition = uiState.viralHookPosition,
+                        hookAlignment = uiState.viralHookAlignment,
+                        transparentBg = uiState.viralHookTransparentBg,
+                        showBorder = uiState.viralHookShowBorder,
+                        showBadge = uiState.viralHookShowBadge,
+                        accentIndex = uiState.viralHookAccentIndex,
+                        sizeScale = uiState.viralHookSizeScale,
                         onToggleBanner = { viewModel.toggleShowViralHookBanner() },
                         onUpdateBadge = { viewModel.updateViralHookBadge(it) },
                         onUpdateTitle = { viewModel.updateViralHookTitle(it) },
-                        onSelectStyle = { viewModel.selectViralHookStyle(it) }
+                        onSelectStyle = { viewModel.selectViralHookStyle(it) },
+                        onSelectPosition = { viewModel.selectViralHookPosition(it) },
+                        onSelectAlignment = { viewModel.selectViralHookAlignment(it) },
+                        onToggleTransparentBg = { viewModel.toggleViralHookTransparentBg() },
+                        onToggleShowBorder = { viewModel.toggleViralHookShowBorder() },
+                        onToggleShowBadge = { viewModel.toggleViralHookShowBadge() },
+                        onSelectAccentIndex = { viewModel.selectViralHookAccentIndex(it) },
+                        onSelectSizeScale = { viewModel.selectViralHookSizeScale(it) },
+                        onApplyQuickPreset = { viewModel.applyViralHookQuickPreset(it) }
                     )
                 }
             }
 
-            // Section 9: Recording End CTA Overlay
+            // Section 9: Recording End CTA Overlay - FULL CUSTOMIZATIONS
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 9) {
                 SectionCard(
-                    title = "Recording End CTA Overlay",
-                    subtitle = "Like, Comment & Subscribe animated overlay cards",
-                    icon = Icons.Filled.NotificationAdd
+                    title = "Recording End Outro CTA Overlay",
+                    subtitle = "Animated Like, Comment & Subscribe cards, custom labels, timing & presets",
+                    icon = Icons.Filled.AutoFixHigh
                 ) {
                     EndCtaSectionContent(
                         showEndCta = uiState.showEndCtaAnimation,
                         ctaMessage = uiState.endCtaMessage,
                         ctaStyle = uiState.endCtaStyle,
+                        ctaPosition = uiState.endCtaPosition,
+                        displayTiming = uiState.ctaDisplayTiming,
+                        transparentBg = uiState.ctaTransparentBg,
+                        showBorder = uiState.ctaShowBorder,
+                        showHandle = uiState.ctaShowHandle,
+                        accentIndex = uiState.ctaAccentIndex,
+                        sizeScale = uiState.ctaSizeScale,
+                        showLike = uiState.ctaShowLike,
+                        showComment = uiState.ctaShowComment,
+                        showSubscribe = uiState.ctaShowSubscribe,
+                        likeLabel = uiState.ctaLikeLabel,
+                        commentLabel = uiState.ctaCommentLabel,
+                        subscribeLabel = uiState.ctaSubscribeLabel,
+                        subscribedLabel = uiState.ctaSubscribedLabel,
+                        creatorHandle = uiState.creatorHandle,
                         onToggleEndCta = { viewModel.toggleShowEndCtaAnimation() },
                         onUpdateMessage = { viewModel.updateEndCtaMessage(it) },
-                        onSelectStyle = { viewModel.selectEndCtaStyle(it) }
+                        onSelectStyle = { viewModel.selectEndCtaStyle(it) },
+                        onSelectPosition = { viewModel.selectEndCtaPosition(it) },
+                        onSelectTiming = { viewModel.selectCtaDisplayTiming(it) },
+                        onToggleTransparentBg = { viewModel.toggleCtaTransparentBg() },
+                        onToggleShowBorder = { viewModel.toggleCtaShowBorder() },
+                        onToggleShowHandle = { viewModel.toggleCtaShowHandle() },
+                        onSelectAccentIndex = { viewModel.selectCtaAccentIndex(it) },
+                        onSelectSizeScale = { viewModel.selectCtaSizeScale(it) },
+                        onToggleLike = { viewModel.toggleCtaLike() },
+                        onToggleComment = { viewModel.toggleCtaComment() },
+                        onToggleSubscribe = { viewModel.toggleCtaSubscribe() },
+                        onUpdateLikeLabel = { viewModel.updateCtaLikeLabel(it) },
+                        onUpdateCommentLabel = { viewModel.updateCtaCommentLabel(it) },
+                        onUpdateSubscribeLabel = { viewModel.updateCtaSubscribeLabel(it) },
+                        onUpdateSubscribedLabel = { viewModel.updateCtaSubscribedLabel(it) },
+                        onApplyPlatformPreset = { viewModel.applyCtaPlatformPreset(it) },
+                        onTestOutro = {
+                            viewModel.triggerEndCtaPreview()
+                            viewModel.selectModule(StudioModule.AUTO_WRITE_STUDIO)
+                        }
                     )
                 }
             }
 
-            // Section 10: Shorts Backdrop Gradient Themes
+            // Section 10: Shorts Backdrop Gradient Themes - FULL CUSTOMIZATIONS
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 10) {
                 SectionCard(
                     title = "Shorts Backdrop Color Themes",
@@ -399,33 +488,65 @@ fun MoreStudioScreen(
                 }
             }
 
-            // Section 11: Recording Flow & Sequence Controls
+            // Section 11: Auto-Write Code Window & Typography - NEW DEDICATED SECTION
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 11) {
                 SectionCard(
-                    title = "Recording Flow & Automation",
-                    subtitle = "3s countdown, auto-chain tabs aur auto-reveal preview",
-                    icon = Icons.Filled.Timer
+                    title = "Rec Code Window & Typography",
+                    subtitle = "Auto-write code font size presets aur line numbers gutter toggle",
+                    icon = Icons.Filled.Code
                 ) {
-                    RecordingFlowSectionContent(
+                    AutoWriteCodeWindowSectionContent(
                         autoWriteFontSize = uiState.autoWriteFontSize,
-                        useCountdown = uiState.useRecordingCountdown,
-                        isAutoChainTabs = uiState.isAutoChainTabs,
-                        autoRevealPreview = uiState.autoRevealPreviewOnFinish,
-                        onUpdateAutoWriteFontSize = { viewModel.updateAutoWriteFontSize(it) },
-                        onToggleCountdown = { viewModel.toggleUseRecordingCountdown() },
-                        onToggleAutoChain = { viewModel.toggleAutoChainTabs() },
-                        onToggleAutoReveal = { viewModel.toggleAutoRevealPreview() }
+                        showGutter = uiState.autoWriteShowGutter,
+                        onUpdateFontSize = { viewModel.updateAutoWriteFontSize(it) },
+                        onToggleGutter = { viewModel.toggleAutoWriteShowGutter() }
                     )
                 }
             }
 
-            // Section 12: About CodePad Studio (Simple Hinglish App About)
+            // Section 12: Recording Flow & Automation - FULL CUSTOMIZATIONS
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 12) {
+                SectionCard(
+                    title = "Recording Flow & Automation",
+                    subtitle = "3s countdown, tab auto-chaining, preview on finish & record lock",
+                    icon = Icons.Filled.Timer
+                ) {
+                    RecordingFlowSectionContent(
+                        useCountdown = uiState.useRecordingCountdown,
+                        isAutoChainTabs = uiState.isAutoChainTabs,
+                        autoRevealPreview = uiState.autoRevealPreviewOnFinish,
+                        keepPreviewInRecord = uiState.keepPreviewOpenInRecord,
+                        onToggleCountdown = { viewModel.toggleUseRecordingCountdown() },
+                        onToggleAutoChain = { viewModel.toggleAutoChainTabs() },
+                        onToggleAutoReveal = { viewModel.toggleAutoRevealPreview() },
+                        onToggleKeepPreviewInRecord = { viewModel.toggleKeepPreviewOpenInRecord() }
+                    )
+                }
+            }
+
+            // Section 13: Live Output Preview in Rec - NEW DEDICATED SECTION
+            if (selectedCategoryIndex == 0 || selectedCategoryIndex == 13) {
+                SectionCard(
+                    title = "Live Output & Floating Preview",
+                    subtitle = "Preview height, scaling modes & gesture shortcuts in Rec studio",
+                    icon = Icons.Filled.OpenInFull
+                ) {
+                    RecPreviewSectionContent(
+                        previewHeightDp = uiState.previewSectionHeightDp,
+                        scaleMode = uiState.previewScaleMode,
+                        onUpdateHeight = { viewModel.setPreviewSectionHeight(it) },
+                        onCycleScaleMode = { viewModel.cyclePreviewScaleMode() }
+                    )
+                }
+            }
+
+            // Section 14: About CodePad Studio (Simple Hinglish App About)
+            if (selectedCategoryIndex == 0 || selectedCategoryIndex == 14) {
                 AppAboutSection()
             }
 
-            // Section 13: About Developer (About Me)
-            if (selectedCategoryIndex == 0 || selectedCategoryIndex == 13) {
+            // Section 15: About Developer (About Me)
+            if (selectedCategoryIndex == 0 || selectedCategoryIndex == 15) {
                 AboutDeveloperSection()
             }
 
@@ -450,9 +571,7 @@ fun MoreStudioScreen(
                 viewModel.setExportSheetOpen(false)
             },
             onExportDeviceFilePicker = { format ->
-                pendingSafFormat = format
-                val safeName = uiState.projectName.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-                createDocumentLauncher.launch("$safeName.${format.extension}")
+                onOpenSafExport(format)
             },
             onDismiss = { viewModel.setExportSheetOpen(false) }
         )
@@ -606,10 +725,6 @@ private fun QuickNavBannerCard(
     }
 }
 
-// -------------------------------------------------------------
-// SEPARATE DEDICATED SECTION CONTENTS
-// -------------------------------------------------------------
-
 @Composable
 private fun DisplayAndThemeSectionContent(
     isDarkTheme: Boolean,
@@ -625,13 +740,13 @@ private fun DisplayAndThemeSectionContent(
         ) {
             Column {
                 Text(
-                    text = "Dark Mode",
-                    style = MaterialTheme.typography.bodyLarge,
+                    text = "Dark Theme Mode",
+                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = if (isDarkTheme) "Dark Studio theme enabled" else "Light theme enabled",
+                    text = if (isDarkTheme) "High-contrast dark palette active" else "Clean bright light theme",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -643,50 +758,45 @@ private fun DisplayAndThemeSectionContent(
             )
         }
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "App UI & Labels Scale",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "${(uiFontScale * 100).roundToInt()}%",
-                    fontFamily = JetBrainsMonoFontFamily,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-
-            Slider(
-                value = uiFontScale,
-                onValueChange = onUiFontScaleChange,
-                valueRange = 0.75f..1.30f,
-                steps = 10,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("more_ui_font_scale_slider")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "UI Visual Scaling",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "${(uiFontScale * 100).roundToInt()}%",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
             )
         }
+
+        Slider(
+            value = uiFontScale,
+            onValueChange = onUiFontScaleChange,
+            valueRange = 0.75f..1.30f,
+            steps = 10,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 
 @Composable
 private fun EditorTypographySectionContent(
     fontSize: Float,
-    onFontSizePreset: (Float, Float, Float) -> Unit,
+    onFontSizePreset: (editorSize: Float, autoWriteSize: Float, uiScale: Float) -> Unit,
     onFontSizeChange: (Float) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
-            text = "Quick Presets",
+            text = "Typography Presets",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -698,28 +808,24 @@ private fun EditorTypographySectionContent(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             FilterChip(
-                selected = fontSize <= 10.5f,
+                selected = fontSize <= 10f,
                 onClick = { onFontSizePreset(10f, 9.5f, 0.82f) },
-                label = { Text("XS (10px)") },
-                modifier = Modifier.testTag("more_font_preset_xs")
+                label = { Text("Extra Small (10px)") }
             )
             FilterChip(
-                selected = fontSize in 11f..12f,
+                selected = fontSize in 10.5f..12f,
                 onClick = { onFontSizePreset(11.5f, 11f, 0.92f) },
-                label = { Text("Compact (11.5px)") },
-                modifier = Modifier.testTag("more_font_preset_compact")
+                label = { Text("Compact (11.5px)") }
             )
             FilterChip(
-                selected = fontSize in 12.5f..14f,
+                selected = fontSize in 12.1f..13.5f,
                 onClick = { onFontSizePreset(13f, 12.5f, 1.0f) },
-                label = { Text("Medium (13px)") },
-                modifier = Modifier.testTag("more_font_preset_medium")
+                label = { Text("Medium (13px)") }
             )
             FilterChip(
-                selected = fontSize >= 14.5f,
+                selected = fontSize >= 14f,
                 onClick = { onFontSizePreset(15f, 14f, 1.12f) },
-                label = { Text("Large (15px)") },
-                modifier = Modifier.testTag("more_font_preset_large")
+                label = { Text("Large (15px)") }
             )
         }
 
@@ -736,7 +842,7 @@ private fun EditorTypographySectionContent(
             Text(
                 text = "${fontSize.roundToInt()} px",
                 fontFamily = JetBrainsMonoFontFamily,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
             )
         }
@@ -746,26 +852,8 @@ private fun EditorTypographySectionContent(
             onValueChange = onFontSizeChange,
             valueRange = 8f..22f,
             steps = 13,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("more_editor_font_slider")
+            modifier = Modifier.fillMaxWidth()
         )
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
-                .padding(12.dp)
-        ) {
-            Text(
-                text = "<h1 class=\"title\">Hello CodePad!</h1>\nconst msg = \"Live Editor Preview\";",
-                fontFamily = JetBrainsMonoFontFamily,
-                fontSize = fontSize.sp,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
     }
 }
 
@@ -778,12 +866,6 @@ private fun ProjectActionsSectionContent(
     onExportZip: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "Code & Project Operations",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -793,10 +875,10 @@ private fun ProjectActionsSectionContent(
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier
                     .weight(1f)
-                    .testTag("more_rename_project_btn")
+                    .testTag("more_rename_btn")
             ) {
                 Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text("Rename")
             }
 
@@ -805,22 +887,24 @@ private fun ProjectActionsSectionContent(
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier
                     .weight(1f)
-                    .testTag("more_format_code_btn")
+                    .testTag("more_format_btn")
             ) {
                 Icon(Icons.Filled.AutoFixHigh, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text("Format")
             }
+        }
 
-            OutlinedButton(
-                onClick = onSplitHtml,
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier
-                    .weight(1f)
-                    .testTag("more_split_html_btn")
-            ) {
-                Text("Split HTML")
-            }
+        OutlinedButton(
+            onClick = onSplitHtml,
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("more_split_btn")
+        ) {
+            Icon(Icons.Filled.Code, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Split Inline <style> & <script> into Tabs")
         }
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -833,9 +917,9 @@ private fun ProjectActionsSectionContent(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Button(
+            OutlinedButton(
                 onClick = onExportHtml,
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier
@@ -844,7 +928,7 @@ private fun ProjectActionsSectionContent(
             ) {
                 Icon(Icons.Filled.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Single .html")
+                Text("Bundled .html")
             }
 
             OutlinedButton(
@@ -911,17 +995,23 @@ private fun StarterTemplatesSectionContent(
 @Composable
 private fun TypingSoundSectionContent(
     currentProfile: TypingSoundProfile,
+    volume: Float,
+    minGapMs: Long,
+    pitchVariation: Boolean,
     onSelectProfile: (TypingSoundProfile) -> Unit,
+    onVolumeChange: (Float) -> Unit,
+    onMinGapChange: (Long) -> Unit,
+    onTogglePitchVariation: () -> Unit,
     onTestSound: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Select Sound Profile",
+                text = "Select Switch Sound Profile",
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface
@@ -933,7 +1023,7 @@ private fun TypingSoundSectionContent(
             ) {
                 Icon(Icons.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(14.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Test Sound", fontSize = 11.sp)
+                Text("Test Click", fontSize = 11.sp)
             }
         }
 
@@ -953,22 +1043,106 @@ private fun TypingSoundSectionContent(
             }
         }
 
-        Text(
-            text = "Tip: 'Test Sound' par click karke dekhein. Auto-Write chalne par har character par audio play hoga.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        // Sound Volume Slider
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Sound Effect Volume",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "${(volume * 100).roundToInt()}%",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        Slider(
+            value = volume,
+            onValueChange = onVolumeChange,
+            valueRange = 0.1f..1.0f,
+            steps = 9,
+            modifier = Modifier.fillMaxWidth().testTag("typing_sound_volume_slider")
         )
+
+        // Randomized Break Interval Slider
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Keystroke Cadence Gap",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Randomized break so audio breathes naturally",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = "${minGapMs}ms",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        Slider(
+            value = minGapMs.toFloat(),
+            onValueChange = { onMinGapChange(it.toLong()) },
+            valueRange = 40f..180f,
+            steps = 13,
+            modifier = Modifier.fillMaxWidth().testTag("typing_sound_gap_slider")
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Organic Pitch Modulation (±3.5%)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Mimics human finger pressure variations",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = pitchVariation,
+                onCheckedChange = { onTogglePitchVariation() },
+                modifier = Modifier.testTag("typing_sound_pitch_switch")
+            )
+        }
     }
 }
 
 @Composable
 private fun SpeedAndDurationSectionContent(
     currentTarget: AutoDurationTarget,
+    speedLevel: Int,
     isTurboMode: Boolean,
+    sequenceMetrics: TypingSequenceMetrics,
     onSelectTarget: (AutoDurationTarget) -> Unit,
+    onSpeedLevelChange: (Int) -> Unit,
     onToggleTurbo: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             text = "Video Target Duration",
             style = MaterialTheme.typography.labelMedium,
@@ -991,6 +1165,83 @@ private fun SpeedAndDurationSectionContent(
             }
         }
 
+        // Real-Time Speed Optimizer Metrics Card
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = "AUTO PACING METRICS",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "${sequenceMetrics.totalChars} total characters across tabs • ~${sequenceMetrics.effectiveSteps} typing steps",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Auto-Calculated Level: Lv.${sequenceMetrics.recommendedSpeedLevel}  |  Estimated Video: ~${sequenceMetrics.estimatedTotalSeconds}s",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        // Manual Speed Slider
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Manual Speed Level",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "Lv.$speedLevel (1-20)",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        Slider(
+            value = speedLevel.toFloat(),
+            onValueChange = { onSpeedLevelChange(it.roundToInt()) },
+            valueRange = 1f..20f,
+            steps = 18,
+            modifier = Modifier.fillMaxWidth().testTag("more_speed_level_slider")
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(1, 3, 6, 10, 14, 20).forEach { lvl ->
+                FilterChip(
+                    selected = speedLevel == lvl,
+                    onClick = { onSpeedLevelChange(lvl) },
+                    label = { Text("${lvl}×") }
+                )
+            }
+        }
+
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
         Row(
@@ -1000,12 +1251,12 @@ private fun SpeedAndDurationSectionContent(
         ) {
             Column {
                 Text(
-                    text = "Turbo High-Speed Mode (2×)",
+                    text = "Turbo High-Speed Burst (2×)",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "Instant fast auto-write for quick shorts",
+                    text = "Double-char burst advance per frame",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1024,11 +1275,42 @@ private fun WatermarkSectionContent(
     creatorHandle: String,
     currentPosition: WatermarkPosition,
     currentStyle: WatermarkStyle,
+    opacity: Float,
+    sizeScale: OverlaySizeScale,
     onUpdateHandle: (String) -> Unit,
     onSelectPosition: (WatermarkPosition) -> Unit,
-    onSelectStyle: (WatermarkStyle) -> Unit
+    onSelectStyle: (WatermarkStyle) -> Unit,
+    onOpacityChange: (Float) -> Unit,
+    onSelectSizeScale: (OverlaySizeScale) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // Live Watermark Preview Box
+        Text(
+            text = "LIVE WATERMARK PREVIEW",
+            fontFamily = JetBrainsMonoFontFamily,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF0B1120))
+                .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                .padding(16.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            CreatorWatermarkBadge(
+                handle = creatorHandle,
+                style = currentStyle,
+                isOverlay = currentPosition == WatermarkPosition.CENTER_OVERLAY,
+                onClick = {},
+                opacity = opacity,
+                sizeScale = sizeScale
+            )
+        }
+
         OutlinedTextField(
             value = creatorHandle,
             onValueChange = onUpdateHandle,
@@ -1040,8 +1322,8 @@ private fun WatermarkSectionContent(
         )
 
         Text(
-            text = "Watermark Position",
-            style = MaterialTheme.typography.labelSmall,
+            text = "Screen Position (Where it appears in Video)",
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Row(
@@ -1061,7 +1343,7 @@ private fun WatermarkSectionContent(
 
         Text(
             text = "Watermark Badge Style",
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Row(
@@ -1078,6 +1360,52 @@ private fun WatermarkSectionContent(
                 )
             }
         }
+
+        // Opacity Slider
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Watermark Opacity",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "${(opacity * 100).roundToInt()}%",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        Slider(
+            value = opacity,
+            onValueChange = onOpacityChange,
+            valueRange = 0.15f..1.0f,
+            steps = 16,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Text(
+            text = "Size Scale",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OverlaySizeScale.entries.forEach { scale ->
+                FilterChip(
+                    selected = sizeScale == scale,
+                    onClick = { onSelectSizeScale(scale) },
+                    label = { Text(scale.label) }
+                )
+            }
+        }
     }
 }
 
@@ -1087,18 +1415,33 @@ private fun ViralHookSectionContent(
     hookBadge: String,
     hookTitle: String,
     hookStyle: ViralHookStyle,
+    hookPosition: ViralHookPosition,
+    hookAlignment: ViralHookAlignment,
+    transparentBg: Boolean,
+    showBorder: Boolean,
+    showBadge: Boolean,
+    accentIndex: Int,
+    sizeScale: OverlaySizeScale,
     onToggleBanner: () -> Unit,
     onUpdateBadge: (String) -> Unit,
     onUpdateTitle: (String) -> Unit,
-    onSelectStyle: (ViralHookStyle) -> Unit
+    onSelectStyle: (ViralHookStyle) -> Unit,
+    onSelectPosition: (ViralHookPosition) -> Unit,
+    onSelectAlignment: (ViralHookAlignment) -> Unit,
+    onToggleTransparentBg: () -> Unit,
+    onToggleShowBorder: () -> Unit,
+    onToggleShowBadge: () -> Unit,
+    onSelectAccentIndex: (Int) -> Unit,
+    onSelectSizeScale: (OverlaySizeScale) -> Unit,
+    onApplyQuickPreset: (ViralHookQuickPreset) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Enable Viral Hook Banner",
                     style = MaterialTheme.typography.bodyMedium,
@@ -1106,7 +1449,7 @@ private fun ViralHookSectionContent(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "Headline card at top of shorts screen",
+                    text = "Grab attention instantly in first 3 seconds of shorts",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1119,10 +1462,63 @@ private fun ViralHookSectionContent(
         }
 
         if (showBanner) {
+            // Live Preview Box for Viral Hook Banner
+            Text(
+                text = "LIVE VIRAL HOOK PREVIEW",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        Brush.horizontalGradient(listOf(Color(0xFF0B1120), Color(0xFF1E293B)))
+                    )
+                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                    .padding(12.dp)
+            ) {
+                ViralHookHeaderBanner(
+                    badgeText = hookBadge,
+                    titleText = hookTitle.ifBlank { "Build a Developer Portfolio Card" },
+                    style = hookStyle,
+                    alignment = hookAlignment,
+                    transparentBg = transparentBg,
+                    showBorder = showBorder,
+                    showBadge = showBadge,
+                    accentIndex = accentIndex,
+                    sizeScale = sizeScale,
+                    onClick = {}
+                )
+            }
+
+            // Quick 1-Tap Ready-Made Viral Hook Presets
+            Text(
+                text = "1-Tap Ready-Made Viral Hook Presets",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                VIRAL_HOOK_QUICK_PRESETS.forEach { preset ->
+                    FilterChip(
+                        selected = hookTitle == preset.title && hookBadge == preset.badge,
+                        onClick = { onApplyQuickPreset(preset) },
+                        label = { Text(preset.label) }
+                    )
+                }
+            }
+
             OutlinedTextField(
                 value = hookBadge,
                 onValueChange = onUpdateBadge,
-                label = { Text("Badge Label (e.g. DAY 14 • JAVASCRIPT)") },
+                label = { Text("Badge Label (e.g. 🔥 HTML • CSS • JS)") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1136,11 +1532,30 @@ private fun ViralHookSectionContent(
             )
 
             Text(
-                text = "Banner Visual Style",
-                style = MaterialTheme.typography.labelSmall,
+                text = "Banner Position",
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ViralHookPosition.entries.forEach { pos ->
+                    FilterChip(
+                        selected = hookPosition == pos,
+                        onClick = { onSelectPosition(pos) },
+                        label = { Text(pos.label) }
+                    )
+                }
+            }
 
+            Text(
+                text = "Visual Style (6 Styles)",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1155,6 +1570,81 @@ private fun ViralHookSectionContent(
                     )
                 }
             }
+
+            Text(
+                text = "Appearance & Frame Toggles",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = transparentBg,
+                    onClick = onToggleTransparentBg,
+                    label = { Text("Transparent BG ✨") }
+                )
+                FilterChip(
+                    selected = showBorder,
+                    onClick = onToggleShowBorder,
+                    label = { Text("Border Outline") }
+                )
+                FilterChip(
+                    selected = showBadge,
+                    onClick = onToggleShowBadge,
+                    label = { Text("Show Badge Pill") }
+                )
+            }
+
+            Text(
+                text = "Text Alignment & Size Scale",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ViralHookAlignment.entries.forEach { align ->
+                    FilterChip(
+                        selected = hookAlignment == align,
+                        onClick = { onSelectAlignment(align) },
+                        label = { Text(align.label) }
+                    )
+                }
+                OverlaySizeScale.entries.forEach { scale ->
+                    FilterChip(
+                        selected = sizeScale == scale,
+                        onClick = { onSelectSizeScale(scale) },
+                        label = { Text("Size: ${scale.label}") }
+                    )
+                }
+            }
+
+            Text(
+                text = "Color Palette",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                CreatorAccentPalette.entries.forEach { palette ->
+                    FilterChip(
+                        selected = accentIndex == palette.index,
+                        onClick = { onSelectAccentIndex(palette.index) },
+                        label = { Text(palette.label) }
+                    )
+                }
+            }
         }
     }
 }
@@ -1164,17 +1654,48 @@ private fun EndCtaSectionContent(
     showEndCta: Boolean,
     ctaMessage: String,
     ctaStyle: EndCtaStyle,
+    ctaPosition: EndCtaPosition,
+    displayTiming: CtaDisplayTiming,
+    transparentBg: Boolean,
+    showBorder: Boolean,
+    showHandle: Boolean,
+    accentIndex: Int,
+    sizeScale: OverlaySizeScale,
+    showLike: Boolean,
+    showComment: Boolean,
+    showSubscribe: Boolean,
+    likeLabel: String,
+    commentLabel: String,
+    subscribeLabel: String,
+    subscribedLabel: String,
+    creatorHandle: String,
     onToggleEndCta: () -> Unit,
     onUpdateMessage: (String) -> Unit,
-    onSelectStyle: (EndCtaStyle) -> Unit
+    onSelectStyle: (EndCtaStyle) -> Unit,
+    onSelectPosition: (EndCtaPosition) -> Unit,
+    onSelectTiming: (CtaDisplayTiming) -> Unit,
+    onToggleTransparentBg: () -> Unit,
+    onToggleShowBorder: () -> Unit,
+    onToggleShowHandle: () -> Unit,
+    onSelectAccentIndex: (Int) -> Unit,
+    onSelectSizeScale: (OverlaySizeScale) -> Unit,
+    onToggleLike: () -> Unit,
+    onToggleComment: () -> Unit,
+    onToggleSubscribe: () -> Unit,
+    onUpdateLikeLabel: (String) -> Unit,
+    onUpdateCommentLabel: (String) -> Unit,
+    onUpdateSubscribeLabel: (String) -> Unit,
+    onUpdateSubscribedLabel: (String) -> Unit,
+    onApplyPlatformPreset: (CtaPlatformQuickPreset) -> Unit,
+    onTestOutro: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "End CTA Animation Overlay",
                     style = MaterialTheme.typography.bodyMedium,
@@ -1182,7 +1703,7 @@ private fun EndCtaSectionContent(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "Subscribe & Like card when code finishes",
+                    text = "Like, Comment & Subscribe animated overlay cards",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1195,20 +1716,82 @@ private fun EndCtaSectionContent(
         }
 
         if (showEndCta) {
-            OutlinedTextField(
-                value = ctaMessage,
-                onValueChange = onUpdateMessage,
-                label = { Text("Call to Action Text") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-
+            // Live Preview Box of CTA Overlay
             Text(
-                text = "Animation Style",
-                style = MaterialTheme.typography.labelSmall,
+                text = "LIVE END CTA PREVIEW",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        Brush.horizontalGradient(listOf(Color(0xFF0B1120), Color(0xFF1E293B)))
+                    )
+                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                    .padding(14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CreatorEndCtaAnimationOverlay(
+                    creatorHandle = creatorHandle,
+                    ctaMessage = ctaMessage,
+                    style = ctaStyle,
+                    transparentBg = transparentBg,
+                    showBorder = showBorder,
+                    showHandle = showHandle,
+                    accentIndex = accentIndex,
+                    sizeScale = sizeScale,
+                    showLike = showLike,
+                    showComment = showComment,
+                    showSubscribe = showSubscribe,
+                    likeLabel = likeLabel,
+                    commentLabel = commentLabel,
+                    subscribeLabel = subscribeLabel,
+                    subscribedLabel = subscribedLabel,
+                    loopAnimation = true,
+                    onDismiss = {}
+                )
+            }
+
+            Button(
+                onClick = onTestOutro,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth().testTag("more_test_outro_btn")
+            ) {
+                Icon(Icons.Filled.AutoFixHigh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Test Outro on Full Rec Stage")
+            }
+
+            // Platform 1-Tap Presets
+            Text(
+                text = "1-Tap Platform Quick Presets",
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                CTA_PLATFORM_QUICK_PRESETS.forEach { preset ->
+                    FilterChip(
+                        selected = subscribeLabel == preset.subscribeLabel && ctaMessage == preset.message,
+                        onClick = { onApplyPlatformPreset(preset) },
+                        label = { Text(preset.label) }
+                    )
+                }
+            }
 
+            Text(
+                text = "CTA Visual Style (6 Styles)",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1220,6 +1803,177 @@ private fun EndCtaSectionContent(
                         selected = ctaStyle == style,
                         onClick = { onSelectStyle(style) },
                         label = { Text(style.label) }
+                    )
+                }
+            }
+
+            Text(
+                text = "Screen Position",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                EndCtaPosition.entries.forEach { pos ->
+                    FilterChip(
+                        selected = ctaPosition == pos,
+                        onClick = { onSelectPosition(pos) },
+                        label = { Text(pos.label) }
+                    )
+                }
+            }
+
+            Text(
+                text = "Display Timing",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                CtaDisplayTiming.entries.forEach { timing ->
+                    FilterChip(
+                        selected = displayTiming == timing,
+                        onClick = { onSelectTiming(timing) },
+                        label = { Text(timing.label) }
+                    )
+                }
+            }
+
+            Text(
+                text = "Appearance & Frame Toggles",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = transparentBg,
+                    onClick = onToggleTransparentBg,
+                    label = { Text("Transparent BG ✨") }
+                )
+                FilterChip(
+                    selected = showBorder,
+                    onClick = onToggleShowBorder,
+                    label = { Text("Border Frame") }
+                )
+                FilterChip(
+                    selected = showHandle,
+                    onClick = onToggleShowHandle,
+                    label = { Text("Show @Handle") }
+                )
+            }
+
+            Text(
+                text = "Action Button Toggles",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = showLike,
+                    onClick = onToggleLike,
+                    label = { Text("Like Button") }
+                )
+                FilterChip(
+                    selected = showComment,
+                    onClick = onToggleComment,
+                    label = { Text("Comment Button") }
+                )
+                FilterChip(
+                    selected = showSubscribe,
+                    onClick = onToggleSubscribe,
+                    label = { Text("Subscribe Button") }
+                )
+            }
+
+            OutlinedTextField(
+                value = ctaMessage,
+                onValueChange = onUpdateMessage,
+                label = { Text("Call to Action Text") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = likeLabel,
+                    onValueChange = onUpdateLikeLabel,
+                    label = { Text("Like Label") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = commentLabel,
+                    onValueChange = onUpdateCommentLabel,
+                    label = { Text("Comment Label") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = subscribeLabel,
+                    onValueChange = onUpdateSubscribeLabel,
+                    label = { Text("Subscribe Text") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = subscribedLabel,
+                    onValueChange = onUpdateSubscribedLabel,
+                    label = { Text("Subscribed State") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Text(
+                text = "Color Palette & Size",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                CreatorAccentPalette.entries.forEach { palette ->
+                    FilterChip(
+                        selected = accentIndex == palette.index,
+                        onClick = { onSelectAccentIndex(palette.index) },
+                        label = { Text(palette.label) }
+                    )
+                }
+                OverlaySizeScale.entries.forEach { scale ->
+                    FilterChip(
+                        selected = sizeScale == scale,
+                        onClick = { onSelectSizeScale(scale) },
+                        label = { Text("Size: ${scale.label}") }
                     )
                 }
             }
@@ -1247,19 +2001,50 @@ private fun BackdropSectionContent(
                 )
             }
         }
+
+        val activePreset = ShortsBackdropPreset.fromIndex(selectedIndex)
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        if (activePreset == ShortsBackdropPreset.CLEAN_M3) {
+                            Brush.linearGradient(listOf(Color(0xFF0F172A), Color(0xFF1E293B)))
+                        } else {
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color(activePreset.startColorHex),
+                                    Color(activePreset.endColorHex)
+                                )
+                            )
+                        }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Active Backdrop: ${activePreset.label}",
+                    color = Color.White,
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun RecordingFlowSectionContent(
+private fun AutoWriteCodeWindowSectionContent(
     autoWriteFontSize: Float,
-    useCountdown: Boolean,
-    isAutoChainTabs: Boolean,
-    autoRevealPreview: Boolean,
-    onUpdateAutoWriteFontSize: (Float) -> Unit,
-    onToggleCountdown: () -> Unit,
-    onToggleAutoChain: () -> Unit,
-    onToggleAutoReveal: () -> Unit
+    showGutter: Boolean,
+    onUpdateFontSize: (Float) -> Unit,
+    onToggleGutter: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
@@ -1275,18 +2060,110 @@ private fun RecordingFlowSectionContent(
             Text(
                 text = "${autoWriteFontSize.roundToInt()} px",
                 fontFamily = JetBrainsMonoFontFamily,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary
             )
         }
 
         Slider(
             value = autoWriteFontSize,
-            onValueChange = onUpdateAutoWriteFontSize,
+            onValueChange = onUpdateFontSize,
             valueRange = 8f..22f,
             steps = 13,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth().testTag("more_autowrite_font_slider")
         )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = autoWriteFontSize <= 9.5f,
+                onClick = { onUpdateFontSize(9.5f) },
+                label = { Text("Extra Small (9.5px)") }
+            )
+            FilterChip(
+                selected = autoWriteFontSize in 10f..11.5f,
+                onClick = { onUpdateFontSize(11f) },
+                label = { Text("Compact (11px)") }
+            )
+            FilterChip(
+                selected = autoWriteFontSize in 12f..13.5f,
+                onClick = { onUpdateFontSize(13f) },
+                label = { Text("Medium (13px)") }
+            )
+            FilterChip(
+                selected = autoWriteFontSize >= 14f,
+                onClick = { onUpdateFontSize(15f) },
+                label = { Text("Large (15px)") }
+            )
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(
+                    text = "Line Numbers (Gutter) Display",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Shows line counts on the left of code window",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = showGutter,
+                onCheckedChange = { onToggleGutter() },
+                modifier = Modifier.testTag("more_autowrite_gutter_switch")
+            )
+        }
+    }
+}
+
+@Composable
+private fun RecordingFlowSectionContent(
+    useCountdown: Boolean,
+    isAutoChainTabs: Boolean,
+    autoRevealPreview: Boolean,
+    keepPreviewInRecord: Boolean,
+    onToggleCountdown: () -> Unit,
+    onToggleAutoChain: () -> Unit,
+    onToggleAutoReveal: () -> Unit,
+    onToggleKeepPreviewInRecord: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(
+                    text = "3-Second Recording Countdown",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "3-2-1 timer before first character is typed",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = useCountdown,
+                onCheckedChange = { onToggleCountdown() },
+                modifier = Modifier.testTag("more_countdown_switch")
+            )
+        }
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
@@ -1295,47 +2172,163 @@ private fun RecordingFlowSectionContent(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                text = "3-Second Recording Countdown",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Switch(
-                checked = useCountdown,
-                onCheckedChange = { onToggleCountdown() }
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = "Auto Chain Tabs (HTML ➔ CSS ➔ JS)",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Column {
+                Text(
+                    text = "Auto Chain Tabs (HTML ➔ CSS ➔ JS)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Smooth 680ms slide between files automatically",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Switch(
                 checked = isAutoChainTabs,
-                onCheckedChange = { onToggleAutoChain() }
+                onCheckedChange = { onToggleAutoChain() },
+                modifier = Modifier.testTag("more_autochain_switch")
             )
         }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            Column {
+                Text(
+                    text = "Reveal Live Output Preview on Finish",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Automatically pops up finished web UI when typing completes",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = autoRevealPreview,
+                onCheckedChange = { onToggleAutoReveal() },
+                modifier = Modifier.testTag("more_autoreveal_switch")
+            )
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(
+                    text = "Keep Floating Preview in Record Mode",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Keeps live DOM window visible during fullscreen recording",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = keepPreviewInRecord,
+                onCheckedChange = { onToggleKeepPreviewInRecord() },
+                modifier = Modifier.testTag("more_keep_preview_switch")
+            )
+        }
+    }
+}
+
+@Composable
+private fun RecPreviewSectionContent(
+    previewHeightDp: Float,
+    scaleMode: PreviewScaleMode,
+    onUpdateHeight: (Float) -> Unit,
+    onCycleScaleMode: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
-                text = "Reveal Live Preview on Finish",
+                text = "Floating Preview Height",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            Switch(
-                checked = autoRevealPreview,
-                onCheckedChange = { onToggleAutoReveal() }
+            Text(
+                text = "${previewHeightDp.roundToInt()} dp",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
             )
+        }
+
+        Slider(
+            value = previewHeightDp,
+            onValueChange = onUpdateHeight,
+            valueRange = 100f..400f,
+            steps = 15,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(
+                    text = "Preview Scale Mode",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = when (scaleMode) {
+                        PreviewScaleMode.AUTO_FIT -> "Auto-Fit (Fluid Scale)"
+                        PreviewScaleMode.SCALE_100 -> "100% Desktop Scale"
+                        PreviewScaleMode.SCALE_75 -> "75% Scale"
+                        PreviewScaleMode.SCALE_50 -> "50% Scale"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            OutlinedButton(onClick = onCycleScaleMode) {
+                Text("Cycle Mode")
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = "REC SCREEN GESTURE SHORTCUTS",
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "• Double Tap: Floating Live Preview toggle karein\n• Triple Tap: Clean Recording Mode toggle karein\n• Single Tap: Play / Pause Auto-Write",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
         }
     }
 }
@@ -1348,87 +2341,73 @@ private fun AppAboutSection() {
     OutlinedCard(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.outlinedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            containerColor = MaterialTheme.colorScheme.surface
         ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("more_about_app_card")
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Info,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = "About CodePad Studio",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Info,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Column {
+                    Text(
+                        text = "About CodePad Studio",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "App Overview & Features (In Simple Hinglish)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
-            // Point 1: Ye Kya Hai
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(
-                    text = "📱 Ye App Kya Hai?",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "CodePad Studio ek complete Mobile Web IDE (HTML, CSS, JS) aur Coding Shorts / Reels Creator Studio hai. Isme aap bina PC ke apne smartphone par live code likh sakte hain, realtime DOM render aur JS console output dekh sakte hain, aur YouTube Shorts / Instagram Reels ke liye ultra-smooth auto-typing coding animations record kar sakte hain.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    lineHeight = 20.sp
-                )
-            }
+            Text(
+                text = "CodePad Studio ek dual-mode developer app hai jo coding practice aur viral coding shorts video creation dono ke liye design kiya gaya hai.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
 
-            // Point 2: Kyun Banaya Gaya
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(
-                    text = "💡 Kyun Banaya Gaya?",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "Har developer ya student ke paas laptop ya PC hamesha accessible nahi hota. Sath hi, social media par viral coding reels banane ke liye PC screen recorder aur video editing software ka setup bohot tedious hota hai. CodePad Studio aapko direct phone se code run karne aur cinematic auto-typing coding videos record karne ki poori aazadi deta hai.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    lineHeight = 20.sp
-                )
-            }
-
-            // Point 3: Kaise Use Karein
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = "🚀 Kaise Use Karein?",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "1. Editor Screen: index.html, style.css aur script.js tabs mein code likhein ya paste karein. Niche diye gaye Live Preview aur JS Console buttons se output test karein.\n" +
-                        "2. Rec Screen: Auto-Write studio mein jakar 'Record' dabayein. Code automatically smoothly type hoga. Recording ke dauran screen par kahi bhi 3 baar tap (triple tap) karne par auto-write turant stop ho jayega.\n" +
-                        "3. More Screen: Har tarah ki audio typing sounds, watermark branding, viral hook banners, CTA overlays, font sizes aur export formats alag-alag sections se customize karein.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    lineHeight = 20.sp
-                )
-            }
+            Text(
+                text = "1. Editor Module (Codepad IDE):\n" +
+                    "• Complete HTML, CSS aur JavaScript code editor line numbers aur syntax highlighting ke saath.\n" +
+                    "• Real-time Live Web & Native DOM preview aur integrated console logs.\n" +
+                    "• Code formatting, auto-save aur complete HTML/ZIP export.\n\n" +
+                    "2. Rec Module (Auto-Write Studio):\n" +
+                    "• YouTube Shorts, Instagram Reels aur TikTok ke liye realistic code typing animation create karta hai.\n" +
+                    "• Target duration presets (15s, 30s, 60s) me code auto-fit hota hai.\n" +
+                    "• Authentic ASMR mechanical keyboard clicks bina kisi external editing ke.\n" +
+                    "• Custom creator watermark, viral hook header banner aur subscribe/like outro animations.\n\n" +
+                    "3. More Hub (Customization Hub):\n" +
+                    "• Yahan par Editor aur Rec screen ke har ek feature ki all settings alag-alag clean sections me organized hain.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -1444,49 +2423,63 @@ private fun AboutDeveloperSection() {
             containerColor = MaterialTheme.colorScheme.surface
         ),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("more_about_me_card")
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Person,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = "About Developer (About Me)",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Person,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Column {
+                    Text(
+                        text = "About Developer",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Developer Profile & Contact",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(54.dp)
+                        .size(52.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "A",
-                        style = MaterialTheme.typography.titleLarge,
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
@@ -1494,42 +2487,23 @@ private fun AboutDeveloperSection() {
 
                 Column {
                     Text(
-                        text = "Arnix (Code With Arnix)",
-                        style = MaterialTheme.typography.titleSmall,
+                        text = "Arnix / CodeWithArnix",
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Developer & Tech Content Creator",
+                        text = "Mobile & Web Dev Creator",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.primary
                     )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.padding(top = 2.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Email,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Text(
-                            text = "codewitharnix@gmail.com",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
                 }
             }
 
             Text(
-                text = "Building modern mobile-first tools to empower developers, learners, and content creators. CodePad Studio is designed to make coding and video creation fast, smooth, and accessible on Android.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                lineHeight = 20.sp
+                text = "Building tools, UI challenges, aur satisfying web development shorts for the creator community.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Surface(
@@ -1538,22 +2512,21 @@ private fun AboutDeveloperSection() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        text = "App Version: 1.0.0",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    Icon(
+                        imageVector = Icons.Filled.Email,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
                     )
                     Text(
-                        text = "Built with Jetpack Compose & M3",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
+                        text = "codewitharnix@gmail.com",
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
             }

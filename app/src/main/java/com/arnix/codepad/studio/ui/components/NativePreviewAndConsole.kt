@@ -450,8 +450,8 @@ fun ChromiumWebSandboxViewport(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
-                // Set software rendering layer to avoid Mesa querying missing hardware rendernodes (/dev/dri/renderD*)
-                setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
+                // Avoid hardware/software rendering glitches on emulators without dedicated GPU render node
+                setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                 setBackgroundColor(AndroidColor.WHITE)
                 isFocusable = true
                 isFocusableInTouchMode = true
@@ -462,16 +462,16 @@ fun ChromiumWebSandboxViewport(
                     javaScriptEnabled = true
                     domStorageEnabled = true
                     databaseEnabled = true
-                    allowFileAccess = true
-                    allowContentAccess = true
-                    mediaPlaybackRequiresUserGesture = false
+                    allowFileAccess = false
+                    allowContentAccess = false
+                    mediaPlaybackRequiresUserGesture = true
                     loadsImagesAutomatically = true
                     useWideViewPort = true
                     loadWithOverviewMode = true
-                    builtInZoomControls = true
+                    builtInZoomControls = false
                     displayZoomControls = false
-                    setSupportZoom(true)
-                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                    setSupportZoom(false)
+                    mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                     cacheMode = WebSettings.LOAD_DEFAULT
                     textZoom = 100
                 }

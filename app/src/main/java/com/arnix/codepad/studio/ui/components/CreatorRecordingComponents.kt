@@ -100,10 +100,14 @@ fun CreatorWatermarkBadge(
     style: WatermarkStyle,
     isOverlay: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    opacity: Float = 1.0f,
+    sizeScale: OverlaySizeScale = OverlaySizeScale.STANDARD
 ) {
     val palette = LocalEditorPalette.current
-    val overlayAlpha = if (isOverlay) 0.42f else 1.0f
+    val scale = sizeScale.scaleFactor
+    val baseOverlayAlpha = if (isOverlay) 0.42f else 1.0f
+    val overlayAlpha = (baseOverlayAlpha * opacity).coerceIn(0.1f, 1.0f)
 
     when (style) {
         WatermarkStyle.PILL_BADGE -> {
@@ -116,23 +120,23 @@ fun CreatorWatermarkBadge(
             ) {
                 Row(
                     modifier = Modifier.padding(
-                        horizontal = if (isOverlay) 14.dp else 9.dp,
-                        vertical = if (isOverlay) 6.dp else 3.dp
+                        horizontal = ((if (isOverlay) 14 else 9) * scale).dp,
+                        vertical = ((if (isOverlay) 6 else 3) * scale).dp
                     ),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    horizontalArrangement = Arrangement.spacedBy((5 * scale).dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Code,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = overlayAlpha),
-                        modifier = Modifier.size(if (isOverlay) 16.dp else 12.dp)
+                        modifier = Modifier.size(((if (isOverlay) 16 else 12) * scale).dp)
                     )
                     Text(
                         text = handle,
                         fontFamily = JetBrainsMonoFontFamily,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = if (isOverlay) 13.uiSp else 9.uiSp,
+                        fontSize = ((if (isOverlay) 13 else 9) * scale).uiSp,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = overlayAlpha),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
