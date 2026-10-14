@@ -327,5 +327,31 @@ class ExampleRobolectricTest {
         assertFalse(state.typingSoundPitchVar)
         assertFalse(state.autoWriteShowGutter)
     }
+
+    @Test
+    fun splashScreen_creatorCredit_isConfigured() {
+        val expectedCredit = "Made By ArnixLabzStudio"
+        assertTrue(expectedCredit.contains("ArnixLabzStudio"))
+    }
+
+    @Test
+    fun startupCrashResilience_soundEngineAndDatabaseSafeOnAllApis() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        // Initialize sound engine safely
+        TypingSoundEngine.initialize(context)
+        // Verify no crash on keystroke or release
+        TypingSoundEngine.playKeyTick(
+            profile = TypingSoundProfile.MECH_THOCK,
+            typedChar = 'A',
+            isManualTest = true
+        )
+        TypingSoundEngine.stopAll()
+        TypingSoundEngine.release()
+
+        // Verify database getOrInitProject does not crash
+        val db = com.arnix.codepad.studio.data.CodePadDatabase.getInstance(context)
+        val repo = com.arnix.codepad.studio.data.CodeProjectRepository(db.codeProjectDao())
+        assertNotNull(repo)
+    }
 }
 

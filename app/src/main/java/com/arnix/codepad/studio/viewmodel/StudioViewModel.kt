@@ -348,7 +348,9 @@ data class StudioUiState(
         requiresTurboBurst = false,
         estimatedTotalSeconds = 1
     ),
-    val isInitialized: Boolean = false
+    val isInitialized: Boolean = false,
+    val isOnboardingOpen: Boolean = false,
+    val hasCompletedOnboarding: Boolean = false
 ) {
     val activeCode: String
         get() = when (activeTab) {
@@ -457,7 +459,8 @@ class StudioViewModel(
 
     init {
         viewModelScope.launch {
-            val initial = repository.getOrInitProject()
+            runCatching {
+                val initial = repository.getOrInitProject()
             val initTab = CodeTab.fromIndex(initial.activeTabIndex)
             val savedWatermarkPos = WatermarkPosition.entries.getOrElse(initial.watermarkPositionOrdinal) {
                 WatermarkPosition.FOOTER_BAR
@@ -543,6 +546,8 @@ class StudioViewModel(
                     typingSoundProfile = savedSoundProfile,
                     useRecordingCountdown = initial.useRecordingCountdown,
                     keepPreviewOpenInRecord = initial.keepPreviewOpenInRecord,
+                    hasCompletedOnboarding = initial.hasCompletedOnboarding,
+                    isOnboardingOpen = !initial.hasCompletedOnboarding,
                     isSaved = true,
                     isInitialized = true
                 )
@@ -550,6 +555,7 @@ class StudioViewModel(
             syncAutoSpeedMetricsIfNeeded()
             rebuildNativePreview(runTopLevelJs = true, logSystemBoot = true)
             updateProgressiveAutoWritePreview()
+            }
         }
     }
 
@@ -562,6 +568,22 @@ class StudioViewModel(
     fun setDarkTheme(dark: Boolean) {
         _uiState.update { it.copy(isDarkTheme = dark) }
         triggerDebouncedAutoSave()
+    }
+
+    fun openOnboardingGuide() {
+        _uiState.update { it.copy(isOnboardingOpen = true) }
+    }
+
+    fun dismissOnboardingGuide(markCompleted: Boolean = true) {
+        _uiState.update {
+            it.copy(
+                isOnboardingOpen = false,
+                hasCompletedOnboarding = it.hasCompletedOnboarding || markCompleted
+            )
+        }
+        if (markCompleted) {
+            triggerDebouncedAutoSave()
+        }
     }
 
     fun selectModule(module: StudioModule) {
@@ -727,6 +749,7 @@ class StudioViewModel(
             typingSoundProfileIndex = current.typingSoundProfile.index,
             useRecordingCountdown = current.useRecordingCountdown,
             keepPreviewOpenInRecord = current.keepPreviewOpenInRecord,
+            hasCompletedOnboarding = current.hasCompletedOnboarding,
             lastSavedTimestamp = System.currentTimeMillis()
         )
     }
@@ -1928,6 +1951,7 @@ class StudioViewModel(
 
     fun startOrResumeAutoWrite() {
         typewriterJob?.cancel()
+        TypingSoundEngine.resetCadence()
         syncAutoSpeedMetricsIfNeeded()
         _uiState.update { state ->
             val (line, col) = computeLineAndColumn(state.autoWriteFullCode, state.typedCharCount)

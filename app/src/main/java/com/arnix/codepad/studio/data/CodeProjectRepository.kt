@@ -6,14 +6,21 @@ class CodeProjectRepository(private val dao: CodeProjectDao) {
     val activeProjectFlow: Flow<CodeProjectEntity?> = dao.observeActiveProject()
 
     suspend fun getOrInitProject(): CodeProjectEntity {
-        val existing = dao.getActiveProjectOnce()
-        if (existing != null) return existing
-        val defaultProject = CodeProjectEntity()
-        dao.upsertProject(defaultProject)
-        return defaultProject
+        return try {
+            val existing = dao.getActiveProjectOnce()
+            if (existing != null) return existing
+            val defaultProject = CodeProjectEntity()
+            dao.upsertProject(defaultProject)
+            defaultProject
+        } catch (_: Throwable) {
+            CodeProjectEntity()
+        }
     }
 
     suspend fun saveProject(project: CodeProjectEntity) {
-        dao.upsertProject(project.copy(lastSavedTimestamp = System.currentTimeMillis()))
+        try {
+            dao.upsertProject(project.copy(lastSavedTimestamp = System.currentTimeMillis()))
+        } catch (_: Throwable) {
+        }
     }
 }

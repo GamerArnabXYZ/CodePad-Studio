@@ -83,10 +83,14 @@ fun MyApplicationTheme(
 
     if (!view.isInEditMode) {
         SideEffect {
-            val window = view.context.findActivity()?.window ?: return@SideEffect
-            val controller = WindowCompat.getInsetsController(window, view)
-            controller.isAppearanceLightStatusBars = !darkTheme
-            controller.isAppearanceLightNavigationBars = !darkTheme
+            runCatching {
+                val window = view.context.findActivity()?.window ?: return@SideEffect
+                val controller = WindowCompat.getInsetsController(window, view)
+                controller.isAppearanceLightStatusBars = !darkTheme
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    controller.isAppearanceLightNavigationBars = !darkTheme
+                }
+            }
         }
     }
 

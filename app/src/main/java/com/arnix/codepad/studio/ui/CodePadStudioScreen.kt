@@ -36,6 +36,7 @@ import androidx.compose.material.icons.outlined.AutoFixHigh
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Terminal
@@ -158,7 +159,8 @@ fun CodePadStudioScreen(
             onEditProjectName = { viewModel.setRenameDialogOpen(true) },
             onFormatCode = { viewModel.formatActiveTabCode() },
             onToggleTheme = { viewModel.toggleTheme() },
-            onOpenExport = { viewModel.setExportSheetOpen(true) }
+            onOpenExport = { viewModel.setExportSheetOpen(true) },
+            onOpenGuide = { viewModel.openOnboardingGuide() }
         )
 
         // 2. Native Material 3 PrimaryTabRow (index.html, style.css, script.js)
@@ -410,7 +412,8 @@ private fun IdeTopAppBar(
     onEditProjectName: () -> Unit,
     onFormatCode: () -> Unit,
     onToggleTheme: () -> Unit,
-    onOpenExport: () -> Unit
+    onOpenExport: () -> Unit,
+    onOpenGuide: () -> Unit
 ) {
     val statusTextColor by animateColorAsState(
         targetValue = when {
@@ -545,6 +548,20 @@ private fun IdeTopAppBar(
                         imageVector = Icons.Outlined.FileDownload,
                         contentDescription = "Export Project",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onOpenGuide,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .testTag("onboarding_tour_top_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.HelpOutline,
+                        contentDescription = "Guided App Tour & Tips",
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
                     )
                 }

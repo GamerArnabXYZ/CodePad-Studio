@@ -72,6 +72,7 @@ data class CodeProjectEntity(
     val typingSoundProfileIndex: Int = 1, // MECH_THOCK
     val useRecordingCountdown: Boolean = true,
     val keepPreviewOpenInRecord: Boolean = true,
+    val hasCompletedOnboarding: Boolean = false,
     val lastSavedTimestamp: Long = System.currentTimeMillis()
 )
 

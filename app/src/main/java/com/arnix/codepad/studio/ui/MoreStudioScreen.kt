@@ -9,6 +9,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.BrandingWatermark
 import androidx.compose.material.icons.filled.Code
@@ -37,6 +39,7 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.NotificationAdd
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Timer
@@ -191,7 +194,7 @@ fun MoreStudioScreen(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Har item ke all customizations dedicated sections mein",
+                            text = "All studio settings, recording preferences & branding controls",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -257,7 +260,7 @@ fun MoreStudioScreen(
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 1) {
                 SectionCard(
                     title = "Theme & Appearance",
-                    subtitle = "Dark mode aur UI visual scaling",
+                    subtitle = "Theme styling, dark mode & typography scale",
                     icon = Icons.Filled.FormatPaint
                 ) {
                     DisplayAndThemeSectionContent(
@@ -273,7 +276,7 @@ fun MoreStudioScreen(
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 2) {
                 SectionCard(
                     title = "Editor Typography & Font",
-                    subtitle = "Code text size presets aur interactive slider",
+                    subtitle = "Code font size presets and fine-grained scale slider",
                     icon = Icons.Filled.TextFields
                 ) {
                     EditorTypographySectionContent(
@@ -288,7 +291,7 @@ fun MoreStudioScreen(
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 3) {
                 SectionCard(
                     title = "Project Management & Export",
-                    subtitle = "Rename project, format code, aur files export karein",
+                    subtitle = "Project renaming, code formatting & multi-format export",
                     icon = Icons.Filled.FileDownload
                 ) {
                     ProjectActionsSectionContent(
@@ -305,7 +308,7 @@ fun MoreStudioScreen(
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 4) {
                 SectionCard(
                     title = "Starter Project Templates",
-                    subtitle = "HTML, CSS & JS presets 1-tap me load karein",
+                    subtitle = "Interactive HTML5, modern CSS3 & ES6 JavaScript templates",
                     icon = Icons.Filled.FolderSpecial
                 ) {
                     StarterTemplatesSectionContent(
@@ -492,7 +495,7 @@ fun MoreStudioScreen(
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 11) {
                 SectionCard(
                     title = "Rec Code Window & Typography",
-                    subtitle = "Auto-write code font size presets aur line numbers gutter toggle",
+                    subtitle = "Typing viewport font scale and line numbers gutter toggle",
                     icon = Icons.Filled.Code
                 ) {
                     AutoWriteCodeWindowSectionContent(
@@ -508,7 +511,7 @@ fun MoreStudioScreen(
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 12) {
                 SectionCard(
                     title = "Recording Flow & Automation",
-                    subtitle = "3s countdown, tab auto-chaining, preview on finish & record lock",
+                    subtitle = "3s countdown, tab auto-chaining, preview on finish & recording options",
                     icon = Icons.Filled.Timer
                 ) {
                     RecordingFlowSectionContent(
@@ -540,12 +543,12 @@ fun MoreStudioScreen(
                 }
             }
 
-            // Section 14: About CodePad Studio (Simple Hinglish App About)
+            // Section 14: About CodePad Studio Architecture & Features
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 14) {
                 AppAboutSection()
             }
 
-            // Section 15: About Developer (About Me)
+            // Section 15: About Developer & Creator
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 15) {
                 AboutDeveloperSection()
             }
@@ -2324,7 +2327,7 @@ private fun RecPreviewSectionContent(
                     color = MaterialTheme.colorScheme.primary
                 )
                 Text(
-                    text = "• Double Tap: Floating Live Preview toggle karein\n• Triple Tap: Clean Recording Mode toggle karein\n• Single Tap: Play / Pause Auto-Write",
+                    text = "• Double Tap: Toggle Floating Live Preview\n• Triple Tap: Toggle Clean Recording Mode\n• Single Tap: Play / Pause Auto-Write",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -2334,7 +2337,7 @@ private fun RecPreviewSectionContent(
 }
 
 /**
- * About CodePad Studio Section (Simple Hinglish App About)
+ * About CodePad Studio Section (Professional Architecture & Feature Overview)
  */
 @Composable
 private fun AppAboutSection() {
@@ -2378,7 +2381,7 @@ private fun AppAboutSection() {
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "App Overview & Features (In Simple Hinglish)",
+                        text = "Dual-Engine Architecture & Feature Overview",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -2388,23 +2391,23 @@ private fun AppAboutSection() {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
             Text(
-                text = "CodePad Studio ek dual-mode developer app hai jo coding practice aur viral coding shorts video creation dono ke liye design kiya gaya hai.",
+                text = "CodePad Studio is a high-performance developer sandbox and viral coding shorts video engine designed for web development practice and automated cinematic video creation.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
 
             Text(
                 text = "1. Editor Module (Codepad IDE):\n" +
-                    "• Complete HTML, CSS aur JavaScript code editor line numbers aur syntax highlighting ke saath.\n" +
-                    "• Real-time Live Web & Native DOM preview aur integrated console logs.\n" +
-                    "• Code formatting, auto-save aur complete HTML/ZIP export.\n\n" +
+                    "• Full-fidelity HTML5, CSS3, and modern JavaScript IDE with syntax highlighting and line-height gutter.\n" +
+                    "• Real-time reactive Web Sandbox, DOM hierarchy inspector, and integrated console logs.\n" +
+                    "• Code formatting, automatic SQLite persistence, and complete bundled HTML / ZIP export.\n\n" +
                     "2. Rec Module (Auto-Write Studio):\n" +
-                    "• YouTube Shorts, Instagram Reels aur TikTok ke liye realistic code typing animation create karta hai.\n" +
-                    "• Target duration presets (15s, 30s, 60s) me code auto-fit hota hai.\n" +
-                    "• Authentic ASMR mechanical keyboard clicks bina kisi external editing ke.\n" +
-                    "• Custom creator watermark, viral hook header banner aur subscribe/like outro animations.\n\n" +
+                    "• Typewriter-cadence video engine tailored for YouTube Shorts, Instagram Reels & TikTok.\n" +
+                    "• Target duration presets (15s, 30s, 60s) with intelligent pacing and cadence calculation.\n" +
+                    "• Direct 16-bit PCM synthesized mechanical keyboard switch acoustics with zero latency.\n" +
+                    "• Creator watermark, viral hook header banner, and interactive outro CTA overlays.\n\n" +
                     "3. More Hub (Customization Hub):\n" +
-                    "• Yahan par Editor aur Rec screen ke har ek feature ki all settings alag-alag clean sections me organized hain.",
+                    "• Comprehensive controls for every IDE and recording overlay feature organized into clean, dedicated sections.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -2413,7 +2416,7 @@ private fun AppAboutSection() {
 }
 
 /**
- * About Developer (About Me) Section
+ * About Developer Section
  */
 @Composable
 private fun AboutDeveloperSection() {
@@ -2501,7 +2504,7 @@ private fun AboutDeveloperSection() {
             }
 
             Text(
-                text = "Building tools, UI challenges, aur satisfying web development shorts for the creator community.",
+                text = "Building high-performance developer tools, reactive UI sandboxes, and satisfying code animations for the creator community.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

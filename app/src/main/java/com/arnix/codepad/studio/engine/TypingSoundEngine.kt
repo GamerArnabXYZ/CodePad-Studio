@@ -71,15 +71,33 @@ object TypingSoundEngine {
                 .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                 .build()
 
-            audioTrack = AudioTrack.Builder()
-                .setAudioAttributes(audioAttributes)
-                .setAudioFormat(audioFormat)
-                .setBufferSizeInBytes(minBufSize * 2)
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .build().apply {
-                    play()
+            try {
+                audioTrack = AudioTrack.Builder()
+                    .setAudioAttributes(audioAttributes)
+                    .setAudioFormat(audioFormat)
+                    .setBufferSizeInBytes(minBufSize * 2)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build().apply {
+                        runCatching { play() }
+                    }
+            } catch (_: Throwable) {
+                // Fallback to legacy AudioTrack constructor for Android API 24/25 compatibility
+                try {
+                    @Suppress("DEPRECATION")
+                    audioTrack = AudioTrack(
+                        android.media.AudioManager.STREAM_MUSIC,
+                        SAMPLE_RATE,
+                        AudioFormat.CHANNEL_OUT_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT,
+                        minBufSize * 2,
+                        AudioTrack.MODE_STREAM
+                    ).apply {
+                        runCatching { play() }
+                    }
+                } catch (_: Throwable) {
                 }
-            isInitialized = true
+            }
+            isInitialized = (audioTrack != null)
         } catch (_: Throwable) {
             // Graceful fallback for mock / headless test environments
         }
@@ -228,12 +246,18 @@ object TypingSoundEngine {
     }
 
     @Synchronized
+    fun resetCadence() {
+        lastPlayTimeMs = 0L
+    }
+
+    @Synchronized
     fun stopAll() {
         try {
             audioTrack?.pause()
             audioTrack?.flush()
         } catch (_: Throwable) {
         }
+        lastPlayTimeMs = 0L
     }
 
     @Synchronized

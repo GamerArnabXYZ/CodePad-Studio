@@ -243,7 +243,7 @@ fun AutoWriteStudioScreen(
                 )
             }
 
-            // Optional Top Stage Creator Handle Banner ("Screen ke upar")
+            // Optional Top Stage Creator Handle Banner (Top Stage Placement)
             if (uiState.watermarkPosition == WatermarkPosition.TOP_STAGE) {
                 Box(
                     modifier = Modifier
@@ -722,7 +722,8 @@ fun AutoWriteStudioScreen(
                         speedLevel = uiState.speedLevel,
                         isTurboMode = uiState.isTurboMode,
                         autoDurationTarget = uiState.autoDurationTarget,
-                        estimatedSeconds = metrics.estimatedTotalSeconds
+                        estimatedSeconds = metrics.estimatedTotalSeconds,
+                        isPlaying = uiState.isAutoWritePlaying
                     )
                 }
             }
@@ -877,7 +878,7 @@ fun AutoWriteStudioScreen(
                 }
             }
 
-            // Optional Bottom Stage Creator Handle Banner ("Screen ke niche")
+            // Optional Bottom Stage Creator Handle Banner (Bottom Stage Placement)
             if (uiState.watermarkPosition == WatermarkPosition.BOTTOM_STAGE) {
                 Box(
                     modifier = Modifier
@@ -1208,7 +1209,8 @@ private fun StudioWindowWatermarkFooter(
     speedLevel: Int,
     isTurboMode: Boolean,
     autoDurationTarget: AutoDurationTarget,
-    estimatedSeconds: Int
+    estimatedSeconds: Int,
+    isPlaying: Boolean
 ) {
     val palette = LocalEditorPalette.current
 
@@ -1220,33 +1222,87 @@ private fun StudioWindowWatermarkFooter(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        if (showHandleInFooter) {
-            CreatorWatermarkBadge(
-                handle = creatorHandle,
-                style = watermarkStyle,
-                isOverlay = false,
-                onClick = {}
-            )
-        } else {
-            Text(
-                text = activeTab.fileName,
-                fontFamily = JetBrainsMonoFontFamily,
-                fontWeight = FontWeight.Medium,
-                fontSize = 9.uiSp,
-                color = palette.gutterText
-            )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (showHandleInFooter) {
+                CreatorWatermarkBadge(
+                    handle = creatorHandle,
+                    style = watermarkStyle,
+                    isOverlay = false,
+                    onClick = {}
+                )
+            } else {
+                Text(
+                    text = activeTab.fileName,
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 9.uiSp,
+                    color = palette.gutterText
+                )
+            }
+
+            if (isPlaying) {
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color(0xFF10B981).copy(alpha = 0.18f),
+                    border = BorderStroke(0.5.dp, Color(0xFF10B981).copy(alpha = 0.45f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF10B981))
+                        )
+                        Text(
+                            text = "WRITING",
+                            fontFamily = JetBrainsMonoFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 7.5.uiSp,
+                            color = Color(0xFF10B981)
+                        )
+                    }
+                }
+            }
         }
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            Text(
+                text = "$typedChars/$totalChars",
+                fontFamily = JetBrainsMonoFontFamily,
+                fontSize = 8.5.uiSp,
+                color = palette.gutterText.copy(alpha = 0.85f)
+            )
+
             Text(
                 text = "Ln $currentLine",
                 fontFamily = JetBrainsMonoFontFamily,
                 fontSize = 9.uiSp,
                 color = palette.gutterText
             )
+
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            ) {
+                Text(
+                    text = autoDurationTarget.shortLabel,
+                    fontFamily = JetBrainsMonoFontFamily,
+                    fontSize = 8.uiSp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.5.dp)
+                )
+            }
         }
     }
 }
