@@ -1267,14 +1267,18 @@ private fun HookRowContent(
 @Composable
 fun RecordingCountdownOverlay(
     secondsLeft: Int,
+    isStartingDelay: Boolean = false,
     onSkipNow: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val borderColor = if (isStartingDelay) Color(0xFFEF4444) else Color(0xFF38BDF8)
+    val headerColor = if (isStartingDelay) Color(0xFFEF4444) else Color(0xFF38BDF8)
+
     Surface(
         onClick = onSkipNow,
         shape = RoundedCornerShape(22.dp),
         color = Color(0xFF0F172A).copy(alpha = 0.94f),
-        border = BorderStroke(1.5.dp, Color(0xFF38BDF8)),
+        border = BorderStroke(1.5.dp, borderColor),
         shadowElevation = 12.dp,
         modifier = modifier.testTag("recording_countdown_overlay")
     ) {
@@ -1284,21 +1288,21 @@ fun RecordingCountdownOverlay(
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
-                text = "GET READY TO RECORD",
+                text = if (isStartingDelay) "● REC READY" else "GET READY TO RECORD",
                 fontFamily = JetBrainsMonoFontFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = 11.sp,
-                color = Color(0xFF38BDF8)
+                color = headerColor
             )
             Text(
-                text = secondsLeft.toString(),
+                text = if (isStartingDelay) "STARTING..." else secondsLeft.toString(),
                 fontFamily = JetBrainsMonoFontFamily,
                 fontWeight = FontWeight.ExtraBold,
-                fontSize = 44.sp,
+                fontSize = if (isStartingDelay) 24.sp else 44.sp,
                 color = Color.White
             )
             Text(
-                text = "Tap anywhere to start immediately",
+                text = if (isStartingDelay) "Breathing pause... typing begins now" else "Tap anywhere to start immediately",
                 style = MaterialTheme.typography.bodySmall,
                 fontSize = 11.sp,
                 color = Color(0xFF94A3B8)

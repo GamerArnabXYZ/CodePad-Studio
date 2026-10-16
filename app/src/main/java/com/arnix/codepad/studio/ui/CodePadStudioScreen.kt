@@ -11,6 +11,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -32,15 +33,28 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ArrowDownward
+import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.AutoFixHigh
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ColorLens
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.LightMode
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Redo
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.Undo
 import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.Widgets
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -83,11 +97,14 @@ import com.arnix.codepad.studio.data.CodeTab
 import com.arnix.codepad.studio.engine.ExportFormat
 import com.arnix.codepad.studio.engine.SyntaxHighlightVisualTransformation
 import com.arnix.codepad.studio.engine.WebSandboxEngine
+import com.arnix.codepad.studio.ui.components.ComponentStoreSheet
+import com.arnix.codepad.studio.ui.components.CssColorPickerDialog
 import com.arnix.codepad.studio.ui.components.ExportProjectSheet
 import com.arnix.codepad.studio.ui.components.ExportResultDialog
 import com.arnix.codepad.studio.ui.components.IntegratedConsolePanel
 import com.arnix.codepad.studio.ui.components.NativeDomPreviewPanel
 import com.arnix.codepad.studio.ui.components.RenameProjectDialog
+import com.arnix.codepad.studio.ui.components.RevisionHistorySheet
 import com.arnix.codepad.studio.ui.theme.JetBrainsMonoFontFamily
 import com.arnix.codepad.studio.ui.theme.LocalEditorPalette
 import com.arnix.codepad.studio.ui.theme.uiSp
@@ -142,6 +159,14 @@ fun CodePadStudioScreen(
         }
     }
 
+    LaunchedEffect(uiState.activeMatchRange) {
+        uiState.activeMatchRange?.let { (start, end) ->
+            if (start in 0..textFieldValue.text.length && end in 0..textFieldValue.text.length) {
+                textFieldValue = textFieldValue.copy(selection = TextRange(start, end))
+            }
+        }
+    }
+
     val visualTransformation = remember(uiState.activeTab, editorPalette) {
         SyntaxHighlightVisualTransformation(uiState.activeTab, editorPalette)
     }
@@ -151,12 +176,16 @@ fun CodePadStudioScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // 1. Balanced Top App Bar (Two-line Title + Saved/Unsaved Status on left, action buttons on right)
+        // 1. Balanced Top App Bar (Project Title + Saved/Unsaved Status + Actions)
         IdeTopAppBar(
             projectName = uiState.projectName,
             isSaved = uiState.isSaved,
             isDarkTheme = uiState.isDarkTheme,
             onEditProjectName = { viewModel.setRenameDialogOpen(true) },
+            onToggleSearch = { viewModel.toggleFindReplace() },
+            onOpenSnippets = { viewModel.setSnippetStoreOpen(true) },
+            onOpenRevisions = { viewModel.setRevisionSheetOpen(true) },
+            onOpenColorPicker = { viewModel.setColorPickerOpen(true) },
             onFormatCode = { viewModel.formatActiveTabCode() },
             onToggleTheme = { viewModel.toggleTheme() },
             onOpenExport = { viewModel.setExportSheetOpen(true) },
@@ -196,6 +225,31 @@ fun CodePadStudioScreen(
         }
 
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+        // Find & Replace Suite
+        AnimatedVisibility(
+            visible = uiState.isFindReplaceOpen,
+            enter = expandVertically(tween(200)) + fadeIn(tween(200)),
+            exit = shrinkVertically(tween(180)) + fadeOut(tween(180))
+        ) {
+            FindAndReplaceBar(
+                query = uiState.findQuery,
+                replaceQuery = uiState.replaceQuery,
+                matchCount = uiState.findTotalMatches,
+                currentMatchIndex = uiState.findCurrentMatchIndex,
+                isMatchCase = uiState.isFindMatchCase,
+                isUseRegex = uiState.isFindUseRegex,
+                onQueryChange = { viewModel.setFindQuery(it) },
+                onReplaceQueryChange = { viewModel.setReplaceQuery(it) },
+                onToggleMatchCase = { viewModel.toggleFindMatchCase() },
+                onToggleUseRegex = { viewModel.toggleFindUseRegex() },
+                onFindPrevious = { viewModel.findPreviousMatch() },
+                onFindNext = { viewModel.findNextMatch() },
+                onReplaceCurrent = { viewModel.replaceCurrentMatch() },
+                onReplaceAll = { viewModel.replaceAllMatches() },
+                onClose = { viewModel.toggleFindReplace(false) }
+            )
+        }
 
         // Optional 1-Tap Split Banner when user pastes a full HTML document with <style> or <script> into index.html
         val hasEmbeddedBlocks = remember(uiState.activeTab, uiState.htmlCode) {
@@ -334,19 +388,57 @@ fun CodePadStudioScreen(
                 val currentText = textFieldValue.text
                 val start = textFieldValue.selection.start.coerceIn(0, currentText.length)
                 val end = textFieldValue.selection.end.coerceIn(0, currentText.length)
-                val newText = currentText.replaceRange(start, end, sym)
-                val newCursor = start + sym.length
-                textFieldValue = TextFieldValue(
-                    text = newText,
-                    selection = TextRange(newCursor)
+                val pairs = mapOf(
+                    "{" to "}",
+                    "(" to ")",
+                    "[" to "]",
+                    "\"" to "\"",
+                    "'" to "'"
                 )
-                viewModel.onCodeChanged(newText, newCursor)
+                val isPair = pairs.containsKey(sym)
+                viewModel.pushUndoCheckpoint(uiState.activeTab, currentText)
+                if (start != end && isPair) {
+                    val selectedText = currentText.substring(start, end)
+                    val closer = pairs[sym] ?: ""
+                    val newText = currentText.replaceRange(start, end, "$sym$selectedText$closer")
+                    val newCursor = end + sym.length + closer.length
+                    textFieldValue = TextFieldValue(text = newText, selection = TextRange(newCursor))
+                    viewModel.onCodeChanged(newText, newCursor)
+                } else if (isPair && uiState.isAutoClosePairs) {
+                    val closer = pairs[sym] ?: ""
+                    val newText = currentText.replaceRange(start, end, "$sym$closer")
+                    val newCursor = start + sym.length
+                    textFieldValue = TextFieldValue(text = newText, selection = TextRange(newCursor))
+                    viewModel.onCodeChanged(newText, newCursor)
+                } else {
+                    val newText = currentText.replaceRange(start, end, sym)
+                    val newCursor = start + sym.length
+                    textFieldValue = TextFieldValue(text = newText, selection = TextRange(newCursor))
+                    viewModel.onCodeChanged(newText, newCursor)
+                }
             },
+            onUndo = {
+                val res = viewModel.undoActiveTabCode()
+                if (res != null) {
+                    val safeIdx = res.second.coerceIn(0, res.first.length)
+                    textFieldValue = TextFieldValue(text = res.first, selection = TextRange(safeIdx))
+                }
+            },
+            onRedo = {
+                val res = viewModel.redoActiveTabCode()
+                if (res != null) {
+                    val safeIdx = res.second.coerceIn(0, res.first.length)
+                    textFieldValue = TextFieldValue(text = res.first, selection = TextRange(safeIdx))
+                }
+            },
+            onOpenColorPicker = { viewModel.setColorPickerOpen(true) },
             onClearActiveTab = {
+                viewModel.pushUndoCheckpoint(uiState.activeTab, textFieldValue.text)
                 textFieldValue = TextFieldValue(text = "", selection = TextRange(0))
                 viewModel.clearActiveTabCode()
             },
             onClearAllTabs = {
+                viewModel.pushUndoCheckpoint(uiState.activeTab, textFieldValue.text)
                 textFieldValue = TextFieldValue(text = "", selection = TextRange(0))
                 viewModel.clearAllTabsForNewSnippet()
             }
@@ -364,6 +456,44 @@ fun CodePadStudioScreen(
             errorCount = uiState.errorCount,
             onTogglePreview = { viewModel.togglePreview() },
             onToggleConsole = { viewModel.toggleConsole() }
+        )
+    }
+
+    // Dialogs & Modal Bottom Sheets
+    if (uiState.isColorPickerOpen) {
+        CssColorPickerDialog(
+            initialColorHex = uiState.initialColorHex,
+            onInsertColor = { colorVal ->
+                val currentText = textFieldValue.text
+                val start = textFieldValue.selection.start.coerceIn(0, currentText.length)
+                val end = textFieldValue.selection.end.coerceIn(0, currentText.length)
+                viewModel.pushUndoCheckpoint(uiState.activeTab, currentText)
+                val newText = currentText.replaceRange(start, end, colorVal)
+                val newCursor = start + colorVal.length
+                textFieldValue = TextFieldValue(text = newText, selection = TextRange(newCursor))
+                viewModel.onCodeChanged(newText, newCursor)
+            },
+            onDismiss = { viewModel.setColorPickerOpen(false) }
+        )
+    }
+
+    if (uiState.isSnippetStoreOpen) {
+        ComponentStoreSheet(
+            onInsertSnippet = { snippet ->
+                viewModel.insertSnippet(snippet)
+            },
+            onDismiss = { viewModel.setSnippetStoreOpen(false) }
+        )
+    }
+
+    if (uiState.isRevisionSheetOpen) {
+        RevisionHistorySheet(
+            snapshots = uiState.snapshots,
+            onCreateSnapshot = { tag -> viewModel.createRevisionSnapshot(tag) },
+            onRestoreSnapshot = { snap -> viewModel.restoreRevisionSnapshot(snap) },
+            onDeleteSnapshot = { id -> viewModel.deleteRevisionSnapshot(id) },
+            onClearAllSnapshots = { viewModel.clearAllRevisionSnapshots() },
+            onDismiss = { viewModel.setRevisionSheetOpen(false) }
         )
     }
 
@@ -410,6 +540,10 @@ private fun IdeTopAppBar(
     isSaved: Boolean,
     isDarkTheme: Boolean,
     onEditProjectName: () -> Unit,
+    onToggleSearch: () -> Unit,
+    onOpenSnippets: () -> Unit,
+    onOpenRevisions: () -> Unit,
+    onOpenColorPicker: () -> Unit,
     onFormatCode: () -> Unit,
     onToggleTheme: () -> Unit,
     onOpenExport: () -> Unit,
@@ -505,64 +639,123 @@ private fun IdeTopAppBar(
                 }
             }
 
-            // Right: 4 Action Buttons with clean 42.dp size
+            // Right: Productivity Action Buttons with clean 38.dp size in horizontal scroll
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                horizontalArrangement = Arrangement.spacedBy(1.dp),
+                modifier = Modifier
+                    .weight(1.35f, fill = false)
+                    .horizontalScroll(rememberScrollState())
             ) {
+                IconButton(
+                    onClick = onToggleSearch,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .testTag("toggle_search_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Search,
+                        contentDescription = "Find and Replace",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onOpenSnippets,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .testTag("open_snippets_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Widgets,
+                        contentDescription = "Component and Snippet Store",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onOpenRevisions,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .testTag("open_revisions_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.History,
+                        contentDescription = "Code Revision Snapshots",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onOpenColorPicker,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .testTag("open_color_picker_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.ColorLens,
+                        contentDescription = "CSS Color Picker",
+                        tint = Color(0xFF38BDF8),
+                        modifier = Modifier.size(19.dp)
+                    )
+                }
+
                 IconButton(
                     onClick = onFormatCode,
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(38.dp)
                         .testTag("format_code_button")
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.AutoFixHigh,
                         contentDescription = "Format Code",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(19.dp)
                     )
                 }
 
                 IconButton(
                     onClick = onToggleTheme,
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(38.dp)
                         .testTag("toggle_theme_button")
                 ) {
                     Icon(
                         imageVector = if (isDarkTheme) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
                         contentDescription = "Toggle Light or Dark Theme",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(19.dp)
                     )
                 }
 
                 IconButton(
                     onClick = onOpenExport,
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(38.dp)
                         .testTag("export_project_button")
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.FileDownload,
                         contentDescription = "Export Project",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(19.dp)
                     )
                 }
 
                 IconButton(
                     onClick = onOpenGuide,
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(38.dp)
                         .testTag("onboarding_tour_top_button")
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.HelpOutline,
                         contentDescription = "Guided App Tour & Tips",
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(19.dp)
                     )
                 }
             }
@@ -707,10 +900,13 @@ private fun SynchronizedCodeEditorWithGutter(
 @Composable
 private fun QuickSymbolBar(
     onInsertSymbol: (String) -> Unit,
+    onUndo: () -> Unit = {},
+    onRedo: () -> Unit = {},
+    onOpenColorPicker: () -> Unit = {},
     onClearActiveTab: () -> Unit = {},
     onClearAllTabs: () -> Unit = {}
 ) {
-    val symbols = listOf("  ", "<", ">", "/", "=", "\"", "'", "{", "}", "(", ")", ";", ":", ".", "#")
+    val symbols = listOf("  ", "<", ">", "/", "=", "\"", "'", "{", "}", "(", ")", "[", "]", ";", ":", "!", "$", "#", ".", "/* */", "->")
 
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -726,6 +922,55 @@ private fun QuickSymbolBar(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Undo & Redo quick action pills
+            Surface(
+                onClick = onUndo,
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f),
+                modifier = Modifier.testTag("symbol_undo_button")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Icon(imageVector = Icons.Outlined.Undo, contentDescription = "Undo", modifier = Modifier.size(13.dp))
+                    Text(text = "Undo", fontSize = 10.uiSp, fontWeight = FontWeight.Medium)
+                }
+            }
+
+            Surface(
+                onClick = onRedo,
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.75f),
+                modifier = Modifier.testTag("symbol_redo_button")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Icon(imageVector = Icons.Outlined.Redo, contentDescription = "Redo", modifier = Modifier.size(13.dp))
+                    Text(text = "Redo", fontSize = 10.uiSp, fontWeight = FontWeight.Medium)
+                }
+            }
+
+            Surface(
+                onClick = onOpenColorPicker,
+                shape = RoundedCornerShape(6.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                modifier = Modifier.testTag("symbol_color_button")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Icon(imageVector = Icons.Outlined.ColorLens, contentDescription = "Color", modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.primary)
+                    Text(text = "Color", fontSize = 10.uiSp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+            }
+
             symbols.forEach { sym ->
                 val label = if (sym == "  ") "Tab" else sym
                 Surface(
@@ -776,6 +1021,232 @@ private fun QuickSymbolBar(
                     color = MaterialTheme.colorScheme.onErrorContainer,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FindAndReplaceBar(
+    query: String,
+    replaceQuery: String,
+    matchCount: Int,
+    currentMatchIndex: Int,
+    isMatchCase: Boolean,
+    isUseRegex: Boolean,
+    onQueryChange: (String) -> Unit,
+    onReplaceQueryChange: (String) -> Unit,
+    onToggleMatchCase: () -> Unit,
+    onToggleUseRegex: () -> Unit,
+    onFindPrevious: () -> Unit,
+    onFindNext: () -> Unit,
+    onReplaceCurrent: () -> Unit,
+    onReplaceAll: () -> Unit,
+    onClose: () -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("find_and_replace_bar")
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            // Line 1: Search row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 12.uiSp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                        .testTag("find_input_field"),
+                    decorationBox = { innerTextField ->
+                        if (query.isEmpty()) {
+                            Text(
+                                text = "Find in code...",
+                                style = TextStyle(fontFamily = JetBrainsMonoFontFamily, fontSize = 11.uiSp, color = MaterialTheme.colorScheme.outline)
+                            )
+                        }
+                        innerTextField()
+                    }
+                )
+
+                // Match count badge
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = if (matchCount > 0) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                ) {
+                    Text(
+                        text = if (query.isEmpty()) "0" else "${if (matchCount > 0) currentMatchIndex + 1 else 0}/$matchCount",
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 10.uiSp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (matchCount > 0) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                    )
+                }
+
+                // Match case toggle
+                Surface(
+                    onClick = onToggleMatchCase,
+                    shape = RoundedCornerShape(6.dp),
+                    color = if (isMatchCase) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.testTag("find_match_case_button")
+                ) {
+                    Text(
+                        text = "Aa",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.uiSp,
+                        color = if (isMatchCase) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                    )
+                }
+
+                // Regex toggle
+                Surface(
+                    onClick = onToggleUseRegex,
+                    shape = RoundedCornerShape(6.dp),
+                    color = if (isUseRegex) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.testTag("find_regex_button")
+                ) {
+                    Text(
+                        text = ".*",
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.uiSp,
+                        color = if (isUseRegex) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                    )
+                }
+
+                // Prev match
+                IconButton(
+                    onClick = onFindPrevious,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .testTag("find_prev_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.ArrowUpward,
+                        contentDescription = "Previous Match",
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                // Next match
+                IconButton(
+                    onClick = onFindNext,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .testTag("find_next_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.ArrowDownward,
+                        contentDescription = "Next Match",
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                // Close
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .testTag("find_close_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "Close Find",
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            // Line 2: Replace row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                BasicTextField(
+                    value = replaceQuery,
+                    onValueChange = onReplaceQueryChange,
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        fontFamily = JetBrainsMonoFontFamily,
+                        fontSize = 12.uiSp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                        .testTag("replace_input_field"),
+                    decorationBox = { innerTextField ->
+                        if (replaceQuery.isEmpty()) {
+                            Text(
+                                text = "Replace with...",
+                                style = TextStyle(fontFamily = JetBrainsMonoFontFamily, fontSize = 11.uiSp, color = MaterialTheme.colorScheme.outline)
+                            )
+                        }
+                        innerTextField()
+                    }
+                )
+
+                Surface(
+                    onClick = onReplaceCurrent,
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.testTag("replace_current_button")
+                ) {
+                    Text(
+                        text = "Replace",
+                        fontSize = 10.uiSp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                    )
+                }
+
+                Surface(
+                    onClick = onReplaceAll,
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.testTag("replace_all_button")
+                ) {
+                    Text(
+                        text = "Replace All",
+                        fontSize = 10.uiSp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                    )
+                }
             }
         }
     }

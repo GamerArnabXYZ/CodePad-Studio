@@ -6,8 +6,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [CodeProjectEntity::class],
-    version = 8,
+    entities = [CodeProjectEntity::class, CodeRevisionSnapshot::class],
+    version = 9,
     exportSchema = false
 )
 abstract class CodePadDatabase : RoomDatabase() {

@@ -113,7 +113,9 @@ object TypingSoundEngine {
         isManualTest: Boolean = false,
         volume: Float = 0.85f,
         minGapMs: Long = 75L,
-        pitchVariation: Boolean = true
+        pitchVariation: Boolean = true,
+        pitchMultiplier: Float = 1.0f,
+        stabilizerResonance: Boolean = true
     ) {
         if (profile == TypingSoundProfile.OFF || volume <= 0.01f) return
 
@@ -130,7 +132,7 @@ object TypingSoundEngine {
             audioTrack
         } ?: return
 
-        val isDeepKey = typedChar == '\n' || typedChar == ' ' || typedChar == '}' || typedChar == '>'
+        val isDeepKey = stabilizerResonance && (typedChar == '\n' || typedChar == ' ' || typedChar == '}' || typedChar == '>')
 
         val rawBuffer = when (profile) {
             TypingSoundProfile.OFF -> return
@@ -139,9 +141,10 @@ object TypingSoundEngine {
             TypingSoundProfile.SOFT_ASMR -> bufferSoftAsmr
         }
 
-        // Apply pitch variation and master volume
-        val pitchFactor = if (pitchVariation) (0.97f + rng.nextFloat() * 0.06f) else 1.0f
-        val outBuffer = processPcmAudio(rawBuffer, volume.coerceIn(0.1f, 1.0f), pitchFactor)
+        // Apply pitch variation and master volume with pitch multiplier
+        val basePitch = if (pitchVariation) (0.97f + rng.nextFloat() * 0.06f) else 1.0f
+        val effectivePitch = (basePitch * pitchMultiplier.coerceIn(0.70f, 1.40f)).coerceIn(0.5f, 2.0f)
+        val outBuffer = processPcmAudio(rawBuffer, volume.coerceIn(0.1f, 1.0f), effectivePitch)
 
         try {
             if (track.playState != AudioTrack.PLAYSTATE_PLAYING) {

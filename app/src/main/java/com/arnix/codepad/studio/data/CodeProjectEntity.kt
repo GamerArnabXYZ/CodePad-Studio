@@ -675,3 +675,14 @@ object ProjectTemplates {
         )
     )
 }
+
+@Entity(tableName = "code_revisions")
+data class CodeRevisionSnapshot(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val timestamp: Long = System.currentTimeMillis(),
+    val tag: String = "Manual Snapshot",
+    val htmlCode: String = "",
+    val cssCode: String = "",
+    val jsCode: String = "",
+    val totalChars: Int = 0
+)

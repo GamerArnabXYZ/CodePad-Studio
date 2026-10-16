@@ -88,7 +88,7 @@ fun CodePadStudioAppRoot() {
         } else if (uiState.isOnboardingOpen) {
             studioViewModel.dismissOnboardingGuide(markCompleted = true)
         } else if (uiState.isRecordingMode) {
-            studioViewModel.handleTripleTapGesture()
+            studioViewModel.handleTripleTapGesture(context)
         } else {
             studioViewModel.selectModule(StudioModule.CODEPAD_IDE)
         }

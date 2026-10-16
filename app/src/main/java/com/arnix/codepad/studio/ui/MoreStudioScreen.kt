@@ -1,5 +1,6 @@
 package com.arnix.codepad.studio.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -88,13 +89,19 @@ import com.arnix.codepad.studio.data.ProjectPreset
 import com.arnix.codepad.studio.data.ProjectTemplates
 import com.arnix.codepad.studio.engine.ExportFormat
 import com.arnix.codepad.studio.engine.PreviewScaleMode
+import com.arnix.codepad.studio.engine.ScreenRecorderEngine
 import com.arnix.codepad.studio.engine.TypingSoundEngine
 import com.arnix.codepad.studio.engine.TypingSoundProfile
+import com.arnix.codepad.studio.ui.components.StartDelaySelectorChips
+import androidx.compose.material.icons.filled.Widgets
+import androidx.compose.material.icons.filled.History
+import com.arnix.codepad.studio.ui.components.ComponentStoreSheet
 import com.arnix.codepad.studio.ui.components.CreatorEndCtaAnimationOverlay
 import com.arnix.codepad.studio.ui.components.CreatorWatermarkBadge
 import com.arnix.codepad.studio.ui.components.ExportProjectSheet
 import com.arnix.codepad.studio.ui.components.ExportResultDialog
 import com.arnix.codepad.studio.ui.components.RenameProjectDialog
+import com.arnix.codepad.studio.ui.components.RevisionHistorySheet
 import com.arnix.codepad.studio.ui.components.ViralHookHeaderBanner
 import com.arnix.codepad.studio.ui.theme.JetBrainsMonoFontFamily
 import com.arnix.codepad.studio.ui.theme.uiSp
@@ -130,6 +137,10 @@ fun MoreStudioScreen(
     val context = LocalContext.current
     var selectedCategoryIndex by remember { mutableIntStateOf(0) }
     var pendingSafFormat by remember { mutableStateOf(ExportFormat.BUNDLED_HTML) }
+
+    BackHandler(enabled = selectedCategoryIndex != 0) {
+        selectedCategoryIndex = 0
+    }
 
     val createDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("*/*")
@@ -317,11 +328,85 @@ fun MoreStudioScreen(
                 }
             }
 
+            // Section 4b: Component Store & Code Revision Snapshots
+            if (selectedCategoryIndex == 0 || selectedCategoryIndex == 4) {
+                SectionCard(
+                    title = "Component Store & Code Snapshots",
+                    subtitle = "Pre-built UI snippets, particles, and local code rollback checkpoints",
+                    icon = Icons.Filled.Widgets
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedCard(
+                            onClick = { viewModel.setSnippetStoreOpen(true) },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("more_open_snippet_store_btn")
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Widgets,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Text(
+                                    text = "Snippet Store",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.uiSp
+                                )
+                                Text(
+                                    text = "7+ UI buttons & scripts",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        OutlinedCard(
+                            onClick = { viewModel.setRevisionSheetOpen(true) },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("more_open_revisions_btn")
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.History,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Text(
+                                    text = "Revision History",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.uiSp
+                                )
+                                Text(
+                                    text = "${uiState.snapshots.size} saved checkpoints",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // Section 5: Typing Sound Effects (Mechanical ASMR) - FULL CUSTOMIZATIONS
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 5) {
                 SectionCard(
                     title = "ASMR Typing Sound Effects",
-                    subtitle = "Authentic mechanical switches, volume, randomized breaks & pitch",
+                    subtitle = "Authentic mechanical switches, volume, acoustic pitch tuning & stabilizers",
                     icon = Icons.Filled.VolumeUp
                 ) {
                     TypingSoundSectionContent(
@@ -329,12 +414,16 @@ fun MoreStudioScreen(
                         volume = uiState.typingSoundVolume,
                         minGapMs = uiState.typingSoundMinGapMs,
                         pitchVariation = uiState.typingSoundPitchVar,
+                        pitchMultiplier = uiState.typingSoundPitchMultiplier,
+                        stabilizerResonance = uiState.typingSoundStabilizerResonance,
                         onSelectProfile = { profile ->
                             viewModel.selectTypingSoundProfile(profile)
                         },
                         onVolumeChange = { viewModel.updateTypingSoundVolume(it) },
                         onMinGapChange = { viewModel.updateTypingSoundMinGap(it) },
                         onTogglePitchVariation = { viewModel.toggleTypingSoundPitchVar() },
+                        onPitchMultiplierChange = { viewModel.setTypingSoundPitchMultiplier(it) },
+                        onToggleStabilizerResonance = { viewModel.setTypingSoundStabilizerResonance(!uiState.typingSoundStabilizerResonance) },
                         onTestSound = {
                             TypingSoundEngine.playKeyTick(
                                 profile = uiState.typingSoundProfile,
@@ -342,7 +431,9 @@ fun MoreStudioScreen(
                                 isManualTest = true,
                                 volume = uiState.typingSoundVolume,
                                 minGapMs = uiState.typingSoundMinGapMs,
-                                pitchVariation = uiState.typingSoundPitchVar
+                                pitchVariation = uiState.typingSoundPitchVar,
+                                pitchMultiplier = uiState.typingSoundPitchMultiplier,
+                                stabilizerResonance = uiState.typingSoundStabilizerResonance
                             )
                         }
                     )
@@ -516,10 +607,14 @@ fun MoreStudioScreen(
                 ) {
                     RecordingFlowSectionContent(
                         useCountdown = uiState.useRecordingCountdown,
+                        startDelayMs = uiState.recordingStartDelayMs,
+                        isAutoRecordInApp = uiState.isAutoRecordInApp,
                         isAutoChainTabs = uiState.isAutoChainTabs,
                         autoRevealPreview = uiState.autoRevealPreviewOnFinish,
                         keepPreviewInRecord = uiState.keepPreviewOpenInRecord,
                         onToggleCountdown = { viewModel.toggleUseRecordingCountdown() },
+                        onSelectStartDelayMs = { viewModel.setRecordingStartDelayMs(it) },
+                        onToggleAutoRecordInApp = { viewModel.setAutoRecordInApp(!uiState.isAutoRecordInApp) },
                         onToggleAutoChain = { viewModel.toggleAutoChainTabs() },
                         onToggleAutoReveal = { viewModel.toggleAutoRevealPreview() },
                         onToggleKeepPreviewInRecord = { viewModel.toggleKeepPreviewOpenInRecord() }
@@ -545,7 +640,7 @@ fun MoreStudioScreen(
 
             // Section 14: About CodePad Studio Architecture & Features
             if (selectedCategoryIndex == 0 || selectedCategoryIndex == 14) {
-                AppAboutSection()
+                AppAboutSection(onOpenGuide = { viewModel.openOnboardingGuide() })
             }
 
             // Section 15: About Developer & Creator
@@ -584,6 +679,26 @@ fun MoreStudioScreen(
         ExportResultDialog(
             result = exportResult,
             onDismiss = { viewModel.dismissExportResult() }
+        )
+    }
+
+    if (uiState.isSnippetStoreOpen) {
+        ComponentStoreSheet(
+            onInsertSnippet = { snippet ->
+                viewModel.insertSnippet(snippet)
+            },
+            onDismiss = { viewModel.setSnippetStoreOpen(false) }
+        )
+    }
+
+    if (uiState.isRevisionSheetOpen) {
+        RevisionHistorySheet(
+            snapshots = uiState.snapshots,
+            onCreateSnapshot = { tag -> viewModel.createRevisionSnapshot(tag) },
+            onRestoreSnapshot = { snap -> viewModel.restoreRevisionSnapshot(snap) },
+            onDeleteSnapshot = { id -> viewModel.deleteRevisionSnapshot(id) },
+            onClearAllSnapshots = { viewModel.clearAllRevisionSnapshots() },
+            onDismiss = { viewModel.setRevisionSheetOpen(false) }
         )
     }
 }
@@ -1001,10 +1116,14 @@ private fun TypingSoundSectionContent(
     volume: Float,
     minGapMs: Long,
     pitchVariation: Boolean,
+    pitchMultiplier: Float = 1.0f,
+    stabilizerResonance: Boolean = true,
     onSelectProfile: (TypingSoundProfile) -> Unit,
     onVolumeChange: (Float) -> Unit,
     onMinGapChange: (Long) -> Unit,
     onTogglePitchVariation: () -> Unit,
+    onPitchMultiplierChange: (Float) -> Unit = {},
+    onToggleStabilizerResonance: () -> Unit = {},
     onTestSound: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1074,6 +1193,65 @@ private fun TypingSoundSectionContent(
             steps = 9,
             modifier = Modifier.fillMaxWidth().testTag("typing_sound_volume_slider")
         )
+
+        // Pitch Multiplier Slider (0.80x Deep Thock to 1.30x Crisp Click)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Acoustic Pitch Tuning",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "0.80x (Deep Bass Thock) to 1.30x (Crisp Click)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = String.format("%.2fx", pitchMultiplier),
+                fontFamily = JetBrainsMonoFontFamily,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        Slider(
+            value = pitchMultiplier,
+            onValueChange = onPitchMultiplierChange,
+            valueRange = 0.80f..1.30f,
+            steps = 10,
+            modifier = Modifier.fillMaxWidth().testTag("typing_sound_pitch_slider")
+        )
+
+        // Spacebar & Return Stabilizer Body Resonance Switch
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Stabilizer Cavity Resonance",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Enhanced acoustic body for Space, Enter & Braces",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = stabilizerResonance,
+                onCheckedChange = { onToggleStabilizerResonance() },
+                modifier = Modifier.testTag("typing_sound_stabilizer_switch")
+            )
+        }
 
         // Randomized Break Interval Slider
         Row(
@@ -2135,10 +2313,14 @@ private fun AutoWriteCodeWindowSectionContent(
 @Composable
 private fun RecordingFlowSectionContent(
     useCountdown: Boolean,
+    startDelayMs: Long,
+    isAutoRecordInApp: Boolean,
     isAutoChainTabs: Boolean,
     autoRevealPreview: Boolean,
     keepPreviewInRecord: Boolean,
     onToggleCountdown: () -> Unit,
+    onSelectStartDelayMs: (Long) -> Unit,
+    onToggleAutoRecordInApp: () -> Unit,
     onToggleAutoChain: () -> Unit,
     onToggleAutoReveal: () -> Unit,
     onToggleKeepPreviewInRecord: () -> Unit
@@ -2165,6 +2347,75 @@ private fun RecordingFlowSectionContent(
                 checked = useCountdown,
                 onCheckedChange = { onToggleCountdown() },
                 modifier = Modifier.testTag("more_countdown_switch")
+            )
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+        // Post-Countdown Start Delay (Breathing Pause)
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Post-Countdown Start Delay",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "Breathing pause after countdown before typing begins so video starts cleanly",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            StartDelaySelectorChips(
+                currentDelayMs = startDelayMs,
+                onSelectDelayMs = onSelectStartDelayMs
+            )
+        }
+
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+        // In-App Screen Video Recording
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "In-App Screen Video Recorder",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Auto-record full HD video directly to device Gallery on record start",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = isAutoRecordInApp,
+                onCheckedChange = { onToggleAutoRecordInApp() },
+                modifier = Modifier.testTag("more_autorecord_inapp_switch")
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = ScreenRecorderEngine.prefer1080p,
+                onClick = { ScreenRecorderEngine.setPrefer1080pPref(!ScreenRecorderEngine.prefer1080p) },
+                label = { Text(if (ScreenRecorderEngine.prefer1080p) "1080p FHD" else "720p HD", fontSize = 11.sp) }
+            )
+            FilterChip(
+                selected = ScreenRecorderEngine.prefer60Fps,
+                onClick = { ScreenRecorderEngine.setPrefer60FpsPref(!ScreenRecorderEngine.prefer60Fps) },
+                label = { Text(if (ScreenRecorderEngine.prefer60Fps) "60 FPS" else "30 FPS", fontSize = 11.sp) }
+            )
+            FilterChip(
+                selected = ScreenRecorderEngine.recordAudio,
+                onClick = { ScreenRecorderEngine.setRecordAudioPref(!ScreenRecorderEngine.recordAudio) },
+                label = { Text(if (ScreenRecorderEngine.recordAudio) "Mic Audio On" else "Mic Audio Off", fontSize = 11.sp) }
             )
         }
 
@@ -2340,7 +2591,9 @@ private fun RecPreviewSectionContent(
  * About CodePad Studio Section (Professional Architecture & Feature Overview)
  */
 @Composable
-private fun AppAboutSection() {
+private fun AppAboutSection(
+    onOpenGuide: () -> Unit = {}
+) {
     OutlinedCard(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.outlinedCardColors(
@@ -2411,6 +2664,30 @@ private fun AppAboutSection() {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Button(
+                onClick = onOpenGuide,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("more_btn_launch_guide"),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.AutoAwesome,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Launch Interactive App Tour & Guide",
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
     }
 }

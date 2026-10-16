@@ -1090,6 +1090,60 @@ object WebSandboxEngine {
         window.__codepadApplyLayoutGuard();
       };
 
+      // 9. In-App Canvas & Video Recording Helper (MediaRecorder)
+      window.__codepadCanvasRecorder = null;
+      window.__codepadRecordedChunks = [];
+      window.__startCanvasRecord = function(fps) {
+        try {
+          var canvas = document.querySelector('canvas');
+          if (!canvas) {
+            console.info('[ScreenCapture] No <canvas> detected in preview to stream directly.');
+            return false;
+          }
+          var stream = canvas.captureStream ? canvas.captureStream(fps || 60) : null;
+          if (!stream) {
+            console.warn('[ScreenCapture] canvas.captureStream is not supported in this WebView.');
+            return false;
+          }
+          window.__codepadRecordedChunks = [];
+          var mime = (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) ? 'video/webm;codecs=vp9' : 'video/webm';
+          window.__codepadCanvasRecorder = new MediaRecorder(stream, { mimeType: mime });
+          window.__codepadCanvasRecorder.ondataavailable = function(e) {
+            if (e.data && e.data.size > 0) window.__codepadRecordedChunks.push(e.data);
+          };
+          window.__codepadCanvasRecorder.start(100);
+          console.info('[ScreenCapture] Canvas video recording started at ' + (fps || 60) + ' FPS.');
+          return true;
+        } catch (err) {
+          console.error('[ScreenCapture] Failed to start canvas record:', err);
+          return false;
+        }
+      };
+
+      window.__stopCanvasRecord = function() {
+        try {
+          if (!window.__codepadCanvasRecorder) return;
+          window.__codepadCanvasRecorder.onstop = function() {
+            var blob = new Blob(window.__codepadRecordedChunks, { type: 'video/webm' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = 'codepad_canvas_recording.webm';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(function() {
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }, 1000);
+            console.info('[ScreenCapture] Canvas recording saved and downloaded successfully.');
+          };
+          window.__codepadCanvasRecorder.stop();
+        } catch (err) {
+          console.error('[ScreenCapture] Failed to stop canvas record:', err);
+        }
+      };
+
       origWinAddEvent('load', function() {
         window.__codepadApplyLayoutGuard();
         if (window.lucide && typeof window.lucide.createIcons === 'function') {

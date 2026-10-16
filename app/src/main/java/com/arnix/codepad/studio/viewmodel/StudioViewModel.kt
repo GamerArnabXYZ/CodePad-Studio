@@ -8,8 +8,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.arnix.codepad.studio.data.CodeProjectEntity
 import com.arnix.codepad.studio.data.CodeProjectRepository
+import com.arnix.codepad.studio.data.CodeRevisionSnapshot
 import com.arnix.codepad.studio.data.CodeTab
 import com.arnix.codepad.studio.data.ProjectPreset
+import com.arnix.codepad.studio.ui.components.CodeSnippet
 import com.arnix.codepad.studio.engine.CodeFormatter
 import com.arnix.codepad.studio.engine.ComputedNodeStyle
 import com.arnix.codepad.studio.engine.ConsoleLogEntry
@@ -21,6 +23,7 @@ import com.arnix.codepad.studio.engine.NativeDomNode
 import com.arnix.codepad.studio.engine.NativeLiveEngine
 import com.arnix.codepad.studio.engine.PreviewScaleMode
 import com.arnix.codepad.studio.engine.ProjectExportEngine
+import com.arnix.codepad.studio.engine.ScreenRecorderEngine
 import com.arnix.codepad.studio.engine.TypingSoundEngine
 import com.arnix.codepad.studio.engine.TypingSoundProfile
 import com.arnix.codepad.studio.engine.WebSandboxEngine
@@ -350,7 +353,33 @@ data class StudioUiState(
     ),
     val isInitialized: Boolean = false,
     val isOnboardingOpen: Boolean = false,
-    val hasCompletedOnboarding: Boolean = false
+    val hasCompletedOnboarding: Boolean = false,
+    // Find & Replace Suite
+    val isFindReplaceOpen: Boolean = false,
+    val findQuery: String = "",
+    val replaceQuery: String = "",
+    val isFindMatchCase: Boolean = false,
+    val isFindUseRegex: Boolean = false,
+    val findCurrentMatchIndex: Int = 0,
+    val findTotalMatches: Int = 0,
+    val activeMatchRange: Pair<Int, Int>? = null,
+    val isAutoClosePairs: Boolean = true,
+    // CSS Color Picker
+    val isColorPickerOpen: Boolean = false,
+    val initialColorHex: String = "#38BDF8",
+    // Component & Snippet Store
+    val isSnippetStoreOpen: Boolean = false,
+    // Revision Snapshots
+    val isRevisionSheetOpen: Boolean = false,
+    val snapshots: List<CodeRevisionSnapshot> = emptyList(),
+    // Audio Acoustic Customizer
+    val typingSoundPitchMultiplier: Float = 1.0f,
+    val typingSoundStabilizerResonance: Boolean = true,
+    // Start Delay after Countdown & In-App Recording
+    val recordingStartDelayMs: Long = 1000L,
+    val isRecordingStartingDelay: Boolean = false,
+    val isAutoRecordInApp: Boolean = false,
+    val isSavedVideoDialogOpen: Boolean = false
 ) {
     val activeCode: String
         get() = when (activeTab) {
@@ -555,6 +584,11 @@ class StudioViewModel(
             syncAutoSpeedMetricsIfNeeded()
             rebuildNativePreview(runTopLevelJs = true, logSystemBoot = true)
             updateProgressiveAutoWritePreview()
+            }
+        }
+        viewModelScope.launch {
+            repository.snapshotsFlow.collect { snapList ->
+                _uiState.update { it.copy(snapshots = snapList) }
             }
         }
     }
@@ -1745,7 +1779,9 @@ class StudioViewModel(
                 isManualTest = true,
                 volume = _uiState.value.typingSoundVolume,
                 minGapMs = _uiState.value.typingSoundMinGapMs,
-                pitchVariation = _uiState.value.typingSoundPitchVar
+                pitchVariation = _uiState.value.typingSoundPitchVar,
+                pitchMultiplier = _uiState.value.typingSoundPitchMultiplier,
+                stabilizerResonance = _uiState.value.typingSoundStabilizerResonance
             )
         }
         triggerDebouncedAutoSave()
@@ -1814,13 +1850,14 @@ class StudioViewModel(
     }
 
     /**
-     * Enters Clean Recording Mode and starts typing cleanly from 0% (with optional 3-2-1 creator countdown).
+     * Enters Clean Recording Mode and starts typing cleanly from 0% (with 3-2-1 countdown followed by start delay).
      */
-    fun startCleanShortsRecording() {
+    fun startCleanShortsRecording(onLaunchInAppRecorder: (() -> Unit)? = null) {
         typewriterJob?.cancel()
         countdownJob?.cancel()
         clearRuntimeDomState()
         val useCountdown = _uiState.value.useRecordingCountdown
+        val startDelay = _uiState.value.recordingStartDelayMs
         _uiState.update {
             it.copy(
                 isRecordingMode = true,
@@ -1830,6 +1867,7 @@ class StudioViewModel(
                 isEndCtaActive = false,
                 isFloatingPreviewOpen = if (it.keepPreviewOpenInRecord) true else it.isFloatingPreviewOpen,
                 recordingCountdownSeconds = if (useCountdown) 3 else 0,
+                isRecordingStartingDelay = false,
                 typedCharCount = 0,
                 autoWriteCurrentLine = 1,
                 autoWriteCurrentColumn = 1,
@@ -1838,24 +1876,62 @@ class StudioViewModel(
         }
         updateProgressiveAutoWritePreview(force = true)
 
+        if (_uiState.value.isAutoRecordInApp && !ScreenRecorderEngine.state.value.isRecording) {
+            onLaunchInAppRecorder?.invoke()
+        }
+
         if (useCountdown) {
             countdownJob = viewModelScope.launch {
                 for (sec in 3 downTo 1) {
-                    _uiState.update { it.copy(recordingCountdownSeconds = sec) }
+                    _uiState.update { it.copy(recordingCountdownSeconds = sec, isRecordingStartingDelay = false) }
                     delay(850L)
                 }
-                _uiState.update { it.copy(recordingCountdownSeconds = 0) }
+                // Post-Countdown Start Delay (e.g. 1.0s breathing pause so video starts cleanly)
+                if (startDelay > 0) {
+                    _uiState.update { it.copy(recordingCountdownSeconds = 0, isRecordingStartingDelay = true) }
+                    delay(startDelay)
+                }
+                _uiState.update { it.copy(recordingCountdownSeconds = 0, isRecordingStartingDelay = false) }
                 startOrResumeAutoWrite()
             }
         } else {
-            startOrResumeAutoWrite()
+            if (startDelay > 0) {
+                countdownJob = viewModelScope.launch {
+                    _uiState.update { it.copy(isRecordingStartingDelay = true) }
+                    delay(startDelay)
+                    _uiState.update { it.copy(isRecordingStartingDelay = false) }
+                    startOrResumeAutoWrite()
+                }
+            } else {
+                startOrResumeAutoWrite()
+            }
         }
     }
 
     fun skipRecordingCountdownNow() {
         countdownJob?.cancel()
-        _uiState.update { it.copy(recordingCountdownSeconds = 0) }
+        _uiState.update {
+            it.copy(
+                recordingCountdownSeconds = 0,
+                isRecordingStartingDelay = false
+            )
+        }
         startOrResumeAutoWrite()
+    }
+
+    fun setRecordingStartDelayMs(delayMs: Long) {
+        _uiState.update { it.copy(recordingStartDelayMs = delayMs.coerceIn(0L, 5000L)) }
+        triggerDebouncedAutoSave()
+    }
+
+    fun setAutoRecordInApp(enabled: Boolean) {
+        _uiState.update { it.copy(isAutoRecordInApp = enabled) }
+        ScreenRecorderEngine.setAutoRecordOnShorts(enabled)
+        triggerDebouncedAutoSave()
+    }
+
+    fun setSavedVideoDialogOpen(isOpen: Boolean) {
+        _uiState.update { it.copy(isSavedVideoDialogOpen = isOpen) }
     }
 
     fun handleSingleTapGesture() {
@@ -1894,22 +1970,26 @@ class StudioViewModel(
         }
     }
 
-    fun handleTripleTapGesture() {
+    fun handleTripleTapGesture(context: Context? = null) {
         val enteringRecord = !_uiState.value.isRecordingMode
         if (enteringRecord) {
             startCleanShortsRecording()
         } else {
-            exitRecordingMode()
+            exitRecordingMode(context)
         }
     }
 
-    fun exitRecordingMode() {
+    fun exitRecordingMode(context: Context? = null) {
         countdownJob?.cancel()
         _uiState.update {
             it.copy(
                 isRecordingMode = false,
-                recordingCountdownSeconds = 0
+                recordingCountdownSeconds = 0,
+                isRecordingStartingDelay = false
             )
+        }
+        if (context != null && ScreenRecorderEngine.state.value.isRecording) {
+            ScreenRecorderEngine.stopServiceRecording(context)
         }
     }
 
@@ -2127,7 +2207,9 @@ class StudioViewModel(
                         isManualTest = false,
                         volume = currentSnapshot.typingSoundVolume,
                         minGapMs = currentSnapshot.typingSoundMinGapMs,
-                        pitchVariation = currentSnapshot.typingSoundPitchVar
+                        pitchVariation = currentSnapshot.typingSoundPitchVar,
+                        pitchMultiplier = currentSnapshot.typingSoundPitchMultiplier,
+                        stabilizerResonance = currentSnapshot.typingSoundStabilizerResonance
                     )
                 }
 
@@ -2188,6 +2270,296 @@ class StudioViewModel(
         typewriterJob?.cancel()
         TypingSoundEngine.stopAll()
         _uiState.update { it.copy(isAutoWritePlaying = false) }
+    }
+
+    // --- Productivity Suite: Undo / Redo ---
+    private val undoHistory = mutableMapOf<CodeTab, ArrayDeque<String>>()
+    private val redoHistory = mutableMapOf<CodeTab, ArrayDeque<String>>()
+
+    fun pushUndoCheckpoint(tab: CodeTab, code: String) {
+        val stack = undoHistory.getOrPut(tab) { ArrayDeque() }
+        if (stack.lastOrNull() != code) {
+            stack.addLast(code)
+            if (stack.size > 35) stack.removeFirst()
+        }
+        redoHistory[tab]?.clear()
+    }
+
+    fun undoActiveTabCode(): Pair<String, Int>? {
+        val tab = _uiState.value.activeTab
+        val stack = undoHistory[tab] ?: return null
+        if (stack.isEmpty()) return null
+        val currentCode = _uiState.value.activeCode
+        val redoStack = redoHistory.getOrPut(tab) { ArrayDeque() }
+        redoStack.addLast(currentCode)
+        val prev = stack.removeLast()
+        applyTabCodeDirectly(tab, prev)
+        return prev to prev.length.coerceAtMost(300)
+    }
+
+    fun redoActiveTabCode(): Pair<String, Int>? {
+        val tab = _uiState.value.activeTab
+        val redoStack = redoHistory[tab] ?: return null
+        if (redoStack.isEmpty()) return null
+        val currentCode = _uiState.value.activeCode
+        val undoStack = undoHistory.getOrPut(tab) { ArrayDeque() }
+        undoStack.addLast(currentCode)
+        val next = redoStack.removeLast()
+        applyTabCodeDirectly(tab, next)
+        return next to next.length.coerceAtMost(300)
+    }
+
+    private fun applyTabCodeDirectly(tab: CodeTab, code: String) {
+        _uiState.update { state ->
+            when (tab) {
+                CodeTab.INDEX_HTML -> state.copy(htmlCode = code, isSaved = false)
+                CodeTab.STYLE_CSS -> state.copy(cssCode = code, isSaved = false)
+                CodeTab.SCRIPT_JS -> state.copy(jsCode = code, isSaved = false)
+            }
+        }
+        triggerDebouncedAutoSave()
+        rebuildNativePreview(runTopLevelJs = true)
+        updateProgressiveAutoWritePreview()
+    }
+
+    // --- Productivity Suite: In-Code Find & Replace ---
+    fun toggleFindReplace(open: Boolean? = null) {
+        val next = open ?: !_uiState.value.isFindReplaceOpen
+        _uiState.update { it.copy(isFindReplaceOpen = next) }
+        if (next) updateFindMatches()
+    }
+
+    fun setFindQuery(query: String) {
+        _uiState.update { it.copy(findQuery = query) }
+        updateFindMatches()
+    }
+
+    fun setReplaceQuery(query: String) {
+        _uiState.update { it.copy(replaceQuery = query) }
+    }
+
+    fun toggleFindMatchCase() {
+        _uiState.update { it.copy(isFindMatchCase = !it.isFindMatchCase) }
+        updateFindMatches()
+    }
+
+    fun toggleFindUseRegex() {
+        _uiState.update { it.copy(isFindUseRegex = !it.isFindUseRegex) }
+        updateFindMatches()
+    }
+
+    private fun getFindMatches(code: String, query: String, matchCase: Boolean, useRegex: Boolean): List<IntRange> {
+        if (query.isEmpty()) return emptyList()
+        return try {
+            if (useRegex) {
+                val options = if (matchCase) emptySet() else setOf(RegexOption.IGNORE_CASE)
+                val regex = Regex(query, options)
+                regex.findAll(code).map { it.range }.toList()
+            } else {
+                val matches = mutableListOf<IntRange>()
+                var idx = 0
+                while (idx < code.length) {
+                    val found = code.indexOf(query, idx, ignoreCase = !matchCase)
+                    if (found == -1) break
+                    matches.add(found until (found + query.length))
+                    idx = found + max(1, query.length)
+                }
+                matches
+            }
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
+
+    fun updateFindMatches() {
+        val state = _uiState.value
+        val code = state.activeCode
+        val matches = getFindMatches(code, state.findQuery, state.isFindMatchCase, state.isFindUseRegex)
+        val currentIdx = if (matches.isEmpty()) 0 else state.findCurrentMatchIndex.coerceIn(0, matches.size - 1)
+        val activeRange = if (matches.isNotEmpty()) matches[currentIdx].first to matches[currentIdx].last + 1 else null
+        _uiState.update {
+            it.copy(
+                findTotalMatches = matches.size,
+                findCurrentMatchIndex = currentIdx,
+                activeMatchRange = activeRange
+            )
+        }
+    }
+
+    fun findNextMatch(): Pair<Int, Int>? {
+        val state = _uiState.value
+        val matches = getFindMatches(state.activeCode, state.findQuery, state.isFindMatchCase, state.isFindUseRegex)
+        if (matches.isEmpty()) return null
+        val nextIdx = (state.findCurrentMatchIndex + 1) % matches.size
+        val range = matches[nextIdx].first to matches[nextIdx].last + 1
+        _uiState.update {
+            it.copy(
+                findCurrentMatchIndex = nextIdx,
+                activeMatchRange = range
+            )
+        }
+        return range
+    }
+
+    fun findPreviousMatch(): Pair<Int, Int>? {
+        val state = _uiState.value
+        val matches = getFindMatches(state.activeCode, state.findQuery, state.isFindMatchCase, state.isFindUseRegex)
+        if (matches.isEmpty()) return null
+        val prevIdx = if (state.findCurrentMatchIndex - 1 < 0) matches.size - 1 else state.findCurrentMatchIndex - 1
+        val range = matches[prevIdx].first to matches[prevIdx].last + 1
+        _uiState.update {
+            it.copy(
+                findCurrentMatchIndex = prevIdx,
+                activeMatchRange = range
+            )
+        }
+        return range
+    }
+
+    fun replaceCurrentMatch(): Pair<String, Pair<Int, Int>>? {
+        val state = _uiState.value
+        val code = state.activeCode
+        val matches = getFindMatches(code, state.findQuery, state.isFindMatchCase, state.isFindUseRegex)
+        if (matches.isEmpty()) return null
+        val idx = state.findCurrentMatchIndex.coerceIn(0, matches.size - 1)
+        val targetRange = matches[idx]
+        pushUndoCheckpoint(state.activeTab, code)
+        val newCode = code.replaceRange(targetRange.first, targetRange.last + 1, state.replaceQuery)
+        val newCursor = targetRange.first + state.replaceQuery.length
+        onCodeChanged(newCode, newCursor)
+        updateFindMatches()
+        return newCode to (targetRange.first to newCursor)
+    }
+
+    fun replaceAllMatches(): String? {
+        val state = _uiState.value
+        val code = state.activeCode
+        if (state.findQuery.isEmpty()) return null
+        pushUndoCheckpoint(state.activeTab, code)
+        val newCode = try {
+            if (state.isFindUseRegex) {
+                val options = if (state.isFindMatchCase) emptySet() else setOf(RegexOption.IGNORE_CASE)
+                code.replace(Regex(state.findQuery, options), state.replaceQuery)
+            } else {
+                code.replace(state.findQuery, state.replaceQuery, ignoreCase = !state.isFindMatchCase)
+            }
+        } catch (_: Throwable) {
+            code
+        }
+        onCodeChanged(newCode, 0)
+        updateFindMatches()
+        return newCode
+    }
+
+    // --- Auto-closing pairs toggle ---
+    fun toggleAutoClosePairs() {
+        _uiState.update { it.copy(isAutoClosePairs = !it.isAutoClosePairs) }
+    }
+
+    // --- CSS Color Picker ---
+    fun setColorPickerOpen(open: Boolean, initialHex: String = "#38BDF8") {
+        _uiState.update { it.copy(isColorPickerOpen = open, initialColorHex = initialHex) }
+    }
+
+    // --- Component & Snippet Store ---
+    fun setSnippetStoreOpen(open: Boolean) {
+        _uiState.update { it.copy(isSnippetStoreOpen = open) }
+    }
+
+    fun insertSnippet(snippet: CodeSnippet) {
+        val currentCode = when (snippet.targetTab) {
+            CodeTab.INDEX_HTML -> _uiState.value.htmlCode
+            CodeTab.STYLE_CSS -> _uiState.value.cssCode
+            CodeTab.SCRIPT_JS -> _uiState.value.jsCode
+        }
+        pushUndoCheckpoint(snippet.targetTab, currentCode)
+        val updatedCode = if (currentCode.isBlank()) {
+            snippet.codeSnippet
+        } else {
+            currentCode + "\n\n" + snippet.codeSnippet
+        }
+        _uiState.update { state ->
+            when (snippet.targetTab) {
+                CodeTab.INDEX_HTML -> state.copy(htmlCode = updatedCode, isSaved = false, activeTab = CodeTab.INDEX_HTML)
+                CodeTab.STYLE_CSS -> state.copy(cssCode = updatedCode, isSaved = false, activeTab = CodeTab.STYLE_CSS)
+                CodeTab.SCRIPT_JS -> state.copy(jsCode = updatedCode, isSaved = false, activeTab = CodeTab.SCRIPT_JS)
+            }
+        }
+        triggerDebouncedAutoSave()
+        rebuildNativePreview(runTopLevelJs = true)
+        updateProgressiveAutoWritePreview()
+    }
+
+    // --- Local Code Revision Snapshots ---
+    fun setRevisionSheetOpen(open: Boolean) {
+        _uiState.update { it.copy(isRevisionSheetOpen = open) }
+    }
+
+    fun createRevisionSnapshot(tag: String) {
+        viewModelScope.launch {
+            val state = _uiState.value
+            repository.saveSnapshot(
+                tag = tag.ifBlank { "Manual Snapshot" },
+                html = state.htmlCode,
+                css = state.cssCode,
+                js = state.jsCode
+            )
+        }
+    }
+
+    fun restoreRevisionSnapshot(snapshot: CodeRevisionSnapshot) {
+        val state = _uiState.value
+        pushUndoCheckpoint(CodeTab.INDEX_HTML, state.htmlCode)
+        pushUndoCheckpoint(CodeTab.STYLE_CSS, state.cssCode)
+        pushUndoCheckpoint(CodeTab.SCRIPT_JS, state.jsCode)
+        _uiState.update {
+            it.copy(
+                htmlCode = snapshot.htmlCode,
+                cssCode = snapshot.cssCode,
+                jsCode = snapshot.jsCode,
+                isSaved = false
+            )
+        }
+        triggerDebouncedAutoSave()
+        rebuildNativePreview(runTopLevelJs = true)
+        updateProgressiveAutoWritePreview()
+    }
+
+    fun deleteRevisionSnapshot(id: Long) {
+        viewModelScope.launch {
+            repository.deleteSnapshot(id)
+        }
+    }
+
+    fun clearAllRevisionSnapshots() {
+        viewModelScope.launch {
+            repository.clearAllSnapshots()
+        }
+    }
+
+    // --- Audio Acoustic Customizer ---
+    fun setTypingSoundPitchMultiplier(pitch: Float) {
+        _uiState.update { it.copy(typingSoundPitchMultiplier = pitch.coerceIn(0.70f, 1.40f)) }
+        TypingSoundEngine.playKeyTick(
+            profile = _uiState.value.typingSoundProfile,
+            typedChar = 'a',
+            isManualTest = true,
+            volume = _uiState.value.typingSoundVolume,
+            pitchMultiplier = pitch,
+            stabilizerResonance = _uiState.value.typingSoundStabilizerResonance
+        )
+    }
+
+    fun setTypingSoundStabilizerResonance(enabled: Boolean) {
+        _uiState.update { it.copy(typingSoundStabilizerResonance = enabled) }
+        TypingSoundEngine.playKeyTick(
+            profile = _uiState.value.typingSoundProfile,
+            typedChar = '\n',
+            isManualTest = true,
+            volume = _uiState.value.typingSoundVolume,
+            pitchMultiplier = _uiState.value.typingSoundPitchMultiplier,
+            stabilizerResonance = enabled
+        )
     }
 
     override fun onCleared() {

@@ -1,6 +1,16 @@
 package com.arnix.codepad.studio.ui
 
+import android.app.Activity
+import android.content.Context
+import android.media.projection.MediaProjectionManager
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.arnix.codepad.studio.engine.ScreenRecorderEngine
+import com.arnix.codepad.studio.ui.components.InAppRecordingFloatingPill
+import com.arnix.codepad.studio.ui.components.SavedRecordingSuccessDialog
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -56,6 +66,8 @@ import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.outlined.AutoAwesome
@@ -150,13 +162,44 @@ fun AutoWriteStudioScreen(
 ) {
     val coroutineScope = rememberCoroutineScope()
     val editorPalette = LocalEditorPalette.current
+    val context = LocalContext.current
+    val recorderState by ScreenRecorderEngine.state.collectAsStateWithLifecycle()
+
+    val mediaProjectionManager = remember {
+        context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
+    }
+
+    val screenCaptureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val metrics = context.resources.displayMetrics
+            ScreenRecorderEngine.startServiceRecording(
+                context = context,
+                resultCode = result.resultCode,
+                data = result.data!!,
+                width = metrics.widthPixels,
+                height = metrics.heightPixels,
+                densityDpi = metrics.densityDpi
+            )
+        } else {
+            ScreenRecorderEngine.updateState { it.copy(error = "Screen recording permission was cancelled.") }
+        }
+    }
+
+    val startInAppRecording: () -> Unit = {
+        val intent = mediaProjectionManager?.createScreenCaptureIntent()
+        if (intent != null) {
+            screenCaptureLauncher.launch(intent)
+        }
+    }
 
     val fontSizeSp = uiState.autoWriteFontSize
     val lineHeightSp = fontSizeSp * 1.45f
 
     BackHandler {
         when {
-            uiState.isRecordingMode -> viewModel.exitRecordingMode()
+            uiState.isRecordingMode -> viewModel.exitRecordingMode(context)
             uiState.isFloatingPreviewOpen -> viewModel.handleDoubleTapGesture()
             else -> viewModel.selectModule(StudioModule.CODEPAD_IDE)
         }
@@ -330,7 +373,7 @@ fun AutoWriteStudioScreen(
                                             when (capturedCount) {
                                                 1 -> viewModel.handleSingleTapGesture()
                                                 2 -> viewModel.handleDoubleTapGesture()
-                                                else -> viewModel.handleTripleTapGesture()
+                                                else -> viewModel.handleTripleTapGesture(context)
                                             }
                                             tapCount = 0
                                         }
@@ -693,15 +736,16 @@ fun AutoWriteStudioScreen(
                             )
                         }
 
-                        // Sleek 3-2-1 Recording Pre-Roll Countdown Overlay
+                        // Sleek 3-2-1 Recording Pre-Roll Countdown Overlay + Start Delay
                         androidx.compose.animation.AnimatedVisibility(
-                            visible = uiState.recordingCountdownSeconds > 0,
+                            visible = uiState.recordingCountdownSeconds > 0 || uiState.isRecordingStartingDelay,
                             enter = fadeIn(tween(150)) + scaleIn(initialScale = 0.85f),
                             exit = fadeOut(tween(120)) + scaleOut(targetScale = 1.08f),
                             modifier = Modifier.align(Alignment.Center)
                         ) {
                             RecordingCountdownOverlay(
                                 secondsLeft = uiState.recordingCountdownSeconds,
+                                isStartingDelay = uiState.isRecordingStartingDelay,
                                 onSkipNow = { viewModel.skipRecordingCountdownNow() }
                             )
                         }
@@ -777,7 +821,7 @@ fun AutoWriteStudioScreen(
                                         delay(260L)
                                         when (capturedCount) {
                                             2 -> viewModel.handleDoubleTapGesture()
-                                            3 -> viewModel.handleTripleTapGesture()
+                                            3 -> viewModel.handleTripleTapGesture(context)
                                         }
                                         tapCount = 0
                                     }
@@ -914,15 +958,43 @@ fun AutoWriteStudioScreen(
                     isFloatingPreviewOpen = uiState.isFloatingPreviewOpen,
                     onSelectDurationTarget = { viewModel.selectAutoDurationTarget(it) },
                     onTogglePlayPause = { viewModel.handleSingleTapGesture() },
-                    onStartCleanRecord = { viewModel.startCleanShortsRecording() },
+                    onStartCleanRecord = { viewModel.startCleanShortsRecording(onLaunchInAppRecorder = { startInAppRecording() }) },
                     onRestart = { viewModel.restartAutoWrite() },
                     onSkipNearEnd = { viewModel.skipNearCompletionForDemo() },
                     onSpeedChange = { viewModel.setSpeedLevel(it) },
                     onToggleTurbo = { viewModel.toggleTurboMode() },
                     onCycleTypingSound = { viewModel.cycleTypingSoundProfile() },
-                    onToggleFloatingPreview = { viewModel.handleDoubleTapGesture() }
+                    onToggleFloatingPreview = { viewModel.handleDoubleTapGesture() },
+                    isScreenRecording = recorderState.isRecording,
+                    onToggleInAppRecord = {
+                        if (recorderState.isRecording) {
+                            ScreenRecorderEngine.stopServiceRecording(context)
+                        } else {
+                            startInAppRecording()
+                        }
+                    }
                 )
             }
+        }
+
+        // Floating Live In-App Screen Recording Pill
+        InAppRecordingFloatingPill(
+            durationSeconds = recorderState.durationSeconds,
+            isRecording = recorderState.isRecording,
+            onStopClick = { ScreenRecorderEngine.stopServiceRecording(context) },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 10.dp, end = 12.dp)
+        )
+
+        // Post-Recording Success Dialog with Play and Share Actions
+        if (recorderState.lastSavedRecording != null) {
+            SavedRecordingSuccessDialog(
+                recordingInfo = recorderState.lastSavedRecording,
+                onPlay = { uri -> ScreenRecorderEngine.playRecordedVideo(context, uri) },
+                onShare = { uri, name -> ScreenRecorderEngine.shareRecordedVideo(context, uri, name) },
+                onDismiss = { ScreenRecorderEngine.clearLastSavedRecording() }
+            )
         }
     }
 }
@@ -1324,7 +1396,9 @@ private fun CreatorControlDeck(
     onSpeedChange: (Int) -> Unit,
     onToggleTurbo: () -> Unit,
     onCycleTypingSound: () -> Unit,
-    onToggleFloatingPreview: () -> Unit
+    onToggleFloatingPreview: () -> Unit,
+    isScreenRecording: Boolean = false,
+    onToggleInAppRecord: () -> Unit = {}
 ) {
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -1489,6 +1563,20 @@ private fun CreatorControlDeck(
                         text = "Record",
                         style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.padding(start = 5.dp)
+                    )
+                }
+
+                FilledTonalIconButton(
+                    onClick = onToggleInAppRecord,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .testTag("autowrite_screen_record_button")
+                ) {
+                    Icon(
+                        imageVector = if (isScreenRecording) Icons.Filled.Stop else Icons.Filled.Videocam,
+                        contentDescription = "In-App Video Recording",
+                        tint = if (isScreenRecording) Color(0xFFEF4444) else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(19.dp)
                     )
                 }
 

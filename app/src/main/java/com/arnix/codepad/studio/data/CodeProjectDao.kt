@@ -16,4 +16,19 @@ interface CodeProjectDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertProject(project: CodeProjectEntity)
+
+    @Query("SELECT * FROM code_revisions ORDER BY timestamp DESC")
+    fun observeSnapshots(): Flow<List<CodeRevisionSnapshot>>
+
+    @Query("SELECT * FROM code_revisions ORDER BY timestamp DESC LIMIT 30")
+    suspend fun getRecentSnapshots(): List<CodeRevisionSnapshot>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSnapshot(snapshot: CodeRevisionSnapshot): Long
+
+    @Query("DELETE FROM code_revisions WHERE id = :id")
+    suspend fun deleteSnapshot(id: Long)
+
+    @Query("DELETE FROM code_revisions")
+    suspend fun clearAllSnapshots()
 }
